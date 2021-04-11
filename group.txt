@@ -1,2 +1,3 @@
 // Please enter your name and email address here
 // Pattern: your name <email@address.org>
+Robert Müller <robert.mueller@st.ovgu.de>
