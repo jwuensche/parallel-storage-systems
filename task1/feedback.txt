@@ -10,4 +10,5 @@ Comments:
 - Amount of time required too high? Did you have problems anywhere?
 - What was too hard or unclear?
 - What could we improve?
+For the love of god, when defining a 2 dimensional something use the x componend for left to right and y for up and down.
 - What did you like?
