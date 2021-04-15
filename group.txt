@@ -3,3 +3,4 @@
 Robert Müller <robert.mueller@st.ovgu.de>
 Lars Wagner <lars.wagner@st.ovgu.de>
 Darshit Shah <darshit.shah@st.ovgu.de>
+Johannes Wünsche <johannes.wuensche@st.ovgu.de>
