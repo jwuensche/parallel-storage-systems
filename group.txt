@@ -1,3 +1,5 @@
 // Please enter your name and email address here
 // Pattern: your name <email@address.org>
 Robert Müller <robert.mueller@st.ovgu.de>
+Lars Wagner <lars.wagner@st.ovgu.de>
+Darshit Shah <darshit.shah@st.ovgu.de>
