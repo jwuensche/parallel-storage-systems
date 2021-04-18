@@ -2,13 +2,19 @@ Please specify the amount of time you needed in hours.
 Please put an X in the appropriate column below.
 
 Time required:
-Difficult:       [ ] too easy  [ ] spot-on        [ ] too hard
-Instructive:     [ ] a little  [ ] okay           [ ] a lot
-Understandable:  [ ] unclear   [ ] a bit unclear  [ ] clear
+Difficult:       [X] too easy  [ ] spot-on        [ ] too hard
+Instructive:     [X] a little  [ ] okay           [ ] a lot
+Understandable:  [ ] unclear   [ ] a bit unclear  [X] clear
 
 Comments:
 - Amount of time required too high? Did you have problems anywhere?
-- What was too hard or unclear?
 - What could we improve?
-For the love of god, when defining a 2 dimensional something use the x componend for left to right and y for up and down.
 - What did you like?
+
+
+For an introductory sheet it's nice to point to man page resources as many don't really
+mention them for beginners at all. Very nitpicky, but I would have pointer students to the
+short shell introduction on swcarpentry, at the end of task 1 or the beginning of 2 as the
+usage of manpages can be confusing if one never worked with a shell before.  But that's
+just personal impression on previous experiences in tutorials, it may be completely fine
+for all students in this course.
