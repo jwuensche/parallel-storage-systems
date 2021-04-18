@@ -15,22 +15,26 @@ enum cardd map[9];
 // The function set_dir should put the value dir at position x, y into the array map
 // Check x, y and dir for validity
 
-// i would like to note that i switched x and y here because i cant let x go downwards and y to the left, it just feels wrong
+// I would like to note that i switched x and y here because i cant let x go downwards and y to the left, it just feels wrong
 void set_dir (int y, int x, enum cardd dir)
 {
 	//create enum that should be here
+	//
 	//x is the index modulo 3
 	// 0 1 2
 	// 0 1 2
 	// 0 1 2
+	// 
 	//y is the index divided by 3
 	// 0 0 0
 	// 1 1 1
 	// 2 2 2
-	//create the value that should be in (x,y)
-	//since the values of the enums are bitwise disjoint i use +, does the same as | in this case
+	//
+	// Create the value that should be in (x,y), only a singular value can be valid
+	// Since the values of the enums are bitwise disjoint i use +, does the same as | in this case
 	enum cardd now = (y==0)*N + (y==2)*S + (x==0)*W + (x==2)*E;
-	//compare with what we have
+
+	// Only set for valid values, else just skip since methods returns void
 	if(now == dir)
 	{
 		//set it
@@ -41,12 +45,14 @@ void set_dir (int y, int x, enum cardd dir)
 // The function show_map should output the array as a 3x3 matrix
 void show_map (void)
 {
+	// Print rows
 	for(int i=0;i<3;++i)
 	{
+		// Print columns
 		for(int j=0;j<3;++j)
 		{
-			//i am to lazy to make it fancy, have switch
-			//i hope i dont have to error handle printf now ...
+			// I hope I dont have to error handle printf now ...
+			// Simple switch case to match the desired output
 			switch((int)(map[i*3 + j]))
 			{
 				case N:
@@ -74,6 +80,7 @@ void show_map (void)
 					printf(" SE");
 					break;
 				default:
+					// Alignment...
 					switch(j)
 					{
 					case 0:
