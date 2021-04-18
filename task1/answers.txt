@@ -1,0 +1,32 @@
+Question No.1: With `which` you can display the path of an application. Why
+does this not work for the `cd` command?
+
+Answer No.1: This is the case (on most systems, e.g. Fedora 33 creates a
+wrapper for `cd` in /usr/bin/cd which can be found then), because `which`
+returns the path to found applications in the directories defined in the PATH
+environment variable. (man which) `cd` cannot be found in this context because
+it is a shell builtin command, these commands are not present as executables or
+scripts in the PATH directories, but are provided and interpreted by the shell
+(e.g. bash) itself, most often they are concerned with functionality directly
+related to the shell (e.g. background tasks, foreground task, changing current
+directories, aliasing).  If a word is part of this group (or any other) can be checked with
+`type` (which is also a shell builtin).
+
+
+Question No.2: What strikes your attention about the three sizes?
+
+Answer No.2: All three sizes are different. This is due to how `ls` displays
+sizes, for files such as `random` or `archive.tar` the actual size of the files
+are shown, in our case 256 KiB for `random` and 260 KiB for `archive.tar`, the
+4 KiB size difference is present due to the additional informations stored in
+the tar archive.  For the directory `archive` the size is given as 4 KiB, this
+is the size of the information represented in the directory (at it's smallest
+4KiB). The directory is not aware of the cumulated size of files beneath it, if
+this is required other tools like `du` can be used (`du -sch archive`).
+
+
+Question No.3: Is it possible to create a compressed archive (archive.tar.gz)
+with only the `tar` command? How should this command have looked like?
+
+Answer No.3: Yes this is possible by using the `z` flag of `tar`. The command
+would have looked like: `tar czf archive.tar.gz archive`
