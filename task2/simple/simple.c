@@ -9,7 +9,13 @@
 int*
 mistake1(void)
 {
-	int buf[] = { 1, 1, 2, 3, 4, 5 };
+	int* buf = malloc(sizeof(int) * 6);
+	buf[0] = 1;
+	buf[1] = 1;
+	buf[2] = 2;
+	buf[3] = 3;
+	buf[4] = 4;
+	buf[5] = 5;
 
 	return buf;
 }
@@ -17,9 +23,9 @@ mistake1(void)
 int*
 mistake2(void)
 {
-	int* buf = malloc(sizeof(char) * 4);
+	int* buf = malloc(sizeof(int) * 4);
 
-	buf[2] = 2;
+	buf[1] = 2;
 
 	return buf;
 }
@@ -28,8 +34,8 @@ int*
 mistake3(void)
 {
 	/* This function is not allowed to allocate memory directly. */
-	int mistake2_ = 0;
-	int* buf = (int*)&mistake2;
+	// int mistake2_ = 0;
+	int* buf = (int*)mistake2();
 
 	buf[0] = 3;
 
@@ -39,10 +45,9 @@ mistake3(void)
 int*
 mistake4(void)
 {
-	int* buf = malloc(sizeof(char) * 4);
+	int* buf = malloc(sizeof(int));
 
-	buf[4] = 4;
-	free(buf);
+	buf[0] = 4;
 
 	return buf;
 }
@@ -59,7 +64,10 @@ main(void)
 	printf("4: %d\n", *p[3]);
 
 	/* Add the correct calls to free() here. */
-	free(p[1]); /* What was the correct pointer here? FIXME */
+	free(&p[1][-1]); /* What was the correct pointer here? FIXME */
+	free(&p[0][-1]);
+	free(p[2]);
+	free(p[3]);
 
 	return 0;
 }

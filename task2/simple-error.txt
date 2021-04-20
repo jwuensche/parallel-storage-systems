@@ -1,0 +1,38 @@
+# Critical errors which occured
+
+Location: simple.c:34
+Reason: SEGFAULT in mistake3, a function pointer is created and then casted to int*. Subsequent errors will fail to write desired data of type int.
+Mitigation: Call function instead of creating a function pointer, which intended by the cast was the desired behavior.
+
+Location: simple.c:56
+Reason: SEGFAULT in main, as function mistake1 returns a stack pointer, which after this stack is destroyed with the return of the function points to invalid memory address.
+Mitigation: Return the value it self or an allocated pointer from the function called.
+
+Location: simple.c:68
+Reason: Invalid pointer on free. Calling free on a pointer which lies within the allocated space of the original malloc call.
+Mitigation: Calculate proper pointer for this operation.
+
+# Potential errors
+
+Location: simple.c:60
+Reason: Invalid write size to allocated memory. We write in a 4 byte wide space with an value at least the size of 8 byte (32bit) or 16 byte (64bit).
+Mitigation: Use proper sizing of allocated space.
+
+Location: simple.c:60
+Reason: Read of unitialized memory.
+Mitigation: Initialized desired memory space in original function.
+
+Location: simple.c:51
+Reason: Free of memory which is later accessed. Early Free.
+Mitigation: Delegate freeing of memory to later point.
+
+Location: simple.c:64
+Reason: Read of unitialized memory.
+Mitigation: Initialized desired memory space in original function.
+
+# Remaining unfreed memory
+
+Location: simple.c:60
+Reason: Memory allocated, which does not get freed. Call to mistake3() and mistake4()
+Mitigation: Free affected pointers.
+

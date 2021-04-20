@@ -1,0 +1,104 @@
+(gdb) b simple.c:mistake1
+Breakpoint 1 at 0x40114a: file simple.c, line 12.
+(gdb) run
+Starting program: /home/fred/Uni/PSS/Exercise/task2/simple/simple 
+Missing separate debuginfos, use: dnf debuginfo-install glibc-2.32-4.fc33.x86_64
+
+Breakpoint 1, mistake1 () at simple.c:12
+12		int buf[] = { 1, 1, 2, 3, 4, 5 };
+(gdb) p buf
+$1 = {15775231, 0, 194, 0, -9417, 32767}
+(gdb) p buf[2]
+$2 = 194
+(gdb) next
+14		return buf;
+(gdb) p buf
+$3 = {1, 1, 2, 3, 4, 5}
+(gdb) p buf[2]
+$4 = 2
+(gdb) whatis buf
+type = int [6]
+(gdb) b simple.c:mistake2
+Breakpoint 2 at 0x401183: file simple.c, line 20.
+(gdb) n
+15	}
+(gdb) n
+main () at simple.c:54
+54		int* p[4] = { &mistake1()[1], &mistake2()[1], mistake3(), mistake4() };
+(gdb) c
+Continuing.
+
+Breakpoint 2, mistake2 () at simple.c:20
+20		int* buf = malloc(sizeof(char) * 4);
+(gdb) n
+22		buf[2] = 2;
+(gdb) whatis buf
+type = int *
+(gdb) c
+Continuing.
+
+Program received signal SIGSEGV, Segmentation fault.
+0x00000000004011bc in mistake3 () at simple.c:34
+34		buf[0] = 3;
+(gdb) list
+29	{
+30		/* This function is not allowed to allocate memory directly. */
+31		int mistake2_ = 0;
+32		int* buf = (int*)&mistake2;
+33	
+34		buf[0] = 3;
+35	
+36		return buf;
+37	}
+38	
+(gdb) info functions 
+All defined functions:
+
+File simple.c:
+51:	int main(void);
+10:	int *mistake1(void);
+18:	int *mistake2(void);
+28:	int *mistake3(void);
+40:	int *mistake4(void);
+
+Non-debugging symbols:
+0x0000000000401000  _init
+0x0000000000401030  free@plt
+0x0000000000401040  printf@plt
+0x0000000000401050  malloc@plt
+0x0000000000401060  annobin_abi_note.c.exit
+0x0000000000401060  annobin_abi_note.c.hot
+0x0000000000401060  annobin_abi_note.c.startup
+0x0000000000401060  annobin_abi_note.c.unlikely
+0x0000000000401060  annobin_abi_note.c_end.exit
+0x0000000000401060  annobin_abi_note.c_end.hot
+0x0000000000401060  annobin_abi_note.c_end.startup
+0x0000000000401060  annobin_abi_note.c_end.unlikely
+0x0000000000401060  annobin_init.c.exit
+0x0000000000401060  annobin_init.c.hot
+0x0000000000401060  annobin_init.c.startup
+0x0000000000401060  annobin_init.c.unlikely
+0x0000000000401060  annobin_init.c_end.exit
+0x0000000000401060  annobin_init.c_end.hot
+0x0000000000401060  annobin_init.c_end.startup
+0x0000000000401060  annobin_init.c_end.unlikely
+0x0000000000401060  annobin_static_reloc.c.exit
+0x0000000000401060  annobin_static_reloc.c.hot
+0x0000000000401060  annobin_static_reloc.c.startup
+0x0000000000401060  annobin_static_reloc.c.unlikely
+0x0000000000401060  annobin_static_reloc.c_end.exit
+0x0000000000401060  annobin_static_reloc.c_end.hot
+0x0000000000401060  annobin_static_reloc.c_end.startup
+0x0000000000401060  annobin_static_reloc.c_end.unlikely
+0x0000000000401060  _start
+0x000000000040108f  annobin_abi_note.c
+0x000000000040108f  annobin_abi_note.c_end
+0x000000000040108f  annobin_init.c
+0x000000000040108f  annobin_init.c_end
+0x0000000000401090  annobin.dl_relocate_static_pie.start
+0x0000000000401090  annobin_static_reloc.c
+--Type <RET> for more, q to quit, c to continue without paging--q
+Quit
+(gdb) p (int*) mistake4
+$5 = (int *) 0x4011c8 <mistake4>
+
