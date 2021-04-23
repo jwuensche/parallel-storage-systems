@@ -28,6 +28,7 @@ struct timeval comp_time;        /* time when calculation complet           */
 struct MatrixInfo {
 	int threads;
 	int iteration;
+	int iterations_completed;
 };
 
 /* ************************************************************************ */
@@ -173,6 +174,8 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 		exit(BROKEN_FORMAT);
 	}
 
+	info->iterations_completed = iteration_completed;
+
 	// If the amount of completed iterations are lower than the total iterations in the header, continue...
 
 	if (iteration_completed >= iteration_total && info->iteration <= iteration_total) {
@@ -201,7 +204,7 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 /* ************************************************************************ */
 static
 void
-calculate (double** matrix, int iterations, int threads, char* path)
+calculate (double** matrix, struct MatrixInfo* info, char* path)
 {
 	int i, j, k, l;
 	int tid;
@@ -217,30 +220,30 @@ calculate (double** matrix, int iterations, int threads, char* path)
 	}
 
 	// Write amount of threads
-	if (pwrite(file_descriptor, &threads, sizeof(int), 0) == -1) {
+	if (pwrite(file_descriptor, &info->threads, sizeof(int), 0) == -1) {
 		log_err("Could not write to checkpoints");
 		exit(COULD_NOT_WRITE);
 	}
 
 	// Write total iterations
-	if (pwrite(file_descriptor, &iterations, sizeof(int), sizeof(int) * 1) == -1) {
+	if (pwrite(file_descriptor, &info->iteration, sizeof(int), sizeof(int) * 1) == -1) {
 		log_err("Could not write to checkpoints");
 		exit(COULD_NOT_WRITE);
 	}
 
 	// Explicitly disable dynamic teams
 	omp_set_dynamic(0);
-	omp_set_num_threads(threads);
+	omp_set_num_threads(info->threads);
 
 	#pragma omp parallel firstprivate(tid, lines, from, to) private(k, l, i, j)
 	{
 		tid = omp_get_thread_num();
 
-		lines = (tid < (N % threads)) ? ((N / threads) + 1) : (N / threads);
-		from =  (tid < (N % threads)) ? (lines * tid) : ((lines * tid) + (N % threads));
+		lines = (tid < (N % info->threads)) ? ((N / info->threads) + 1) : (N / info->threads);
+		from =  (tid < (N % info->threads)) ? (lines * tid) : ((lines * tid) + (N % info->threads));
 		to = from + lines;
 
-		for (k = 1; k <= iterations; k++)
+		for (k = info->iterations_completed; k <= info->iteration; k++)
 		{
 			for (i = from; i < to; i++)
 			{
@@ -312,7 +315,7 @@ main (int argc, char** argv)
 		sscanf(argv[3], "%s", path);
 	}
 
-	struct MatrixInfo info = {threads, iterations};
+	struct MatrixInfo info = {threads, iterations, 1};
 
 	matrix = alloc_matrix();
 
@@ -328,7 +331,7 @@ main (int argc, char** argv)
 	}
 
 	gettimeofday(&start_time, NULL);
-	calculate(matrix, iterations, threads, path);
+	calculate(matrix, &info, path);
 	gettimeofday(&comp_time, NULL);
 
 	displayStatistics();
