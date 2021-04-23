@@ -308,7 +308,7 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 						exit(COULD_NOT_WRITE);
 				}
 			}
-
+			#pragma omp barrier
 		}
 	}
 	close(file_descriptor);
