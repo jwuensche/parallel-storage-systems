@@ -160,8 +160,10 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 	}
 
 	if (threads != info->threads) {
-		log_err("Thread amount differes from checkpoint file");
-		exit(INVALID_PARAM);
+		// This may only be a warning that parameters have changed, but it's not
+		// failure-worthy as the amount of parameters is not fatal if lower or
+		// higher.
+		log_warn("Thread amount differes from checkpoint file");
 	}
 
 	if (pread(file, &iteration_total, sizeof(int), sizeof(int)) == -1) {
@@ -209,6 +211,8 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 	int i, j, k, l;
 	int tid;
 	int lines, from, to;
+
+	int* cooler_matrix = malloc(N*N*sizeof(double) + sizeof(int));
 
 	tid = 0;
 	lines = from = to = -1;
@@ -259,23 +263,56 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 			// We will use pwrite in this case due to the advantages in parallel environments as described in `checkpoint-answers.txt`
 			// Also since formatting is no problem, we will simply use byte offsets to differentiate between numbers and provide no human readable
 			for (i = from; i < to; i++) {
-				// printf("matrix[%d]: %p, size: %ld, offset: %ld, tid: %d\n", i, (void*)matrix[i], sizeof(double)*N, (i * N * sizeof(double)) + isch, tid);
-				if (pwrite(file_descriptor, matrix[i], sizeof(double) * N, calc_offset(i)) == -1) {
-					log_err("Could not write to checkpoints");
-					exit(COULD_NOT_WRITE);
+				double* offset_double = (double*)&cooler_matrix[1];
+				for (size_t idx = 0; idx < N; idx +=1) {
+					offset_double[N * i + idx] = matrix[i][idx];
 				}
+				// printf("matrix[%d]: %p, size: %ld, offset: %ld, tid: %d\n", i, (void*)matrix[i], sizeof(double)*N, (i * N * sizeof(double)) + isch, tid);
+				// if (pwrite(file_descriptor, matrix[i], sizeof(double) * N, calc_offset(i)) == -1) {
+				// 	log_err("Could not write to checkpoints");
+				// 	exit(COULD_NOT_WRITE);
+				// }
 			}
 			#pragma omp barrier
+
+			/*
+			** Really depends on how we define atomic writing herre, in POSIX
+			** this atomicity may be done via a single system call, so the idea
+			** would be to change the current writing method and replace it with
+			** a more efficient call to a single write instruction.
+			**
+			** For this purpose we will use the first thread again as this one
+			** is our write slave and yeet them out. Problems occurs here in how
+			** the matrix is saved. As nested pointers are used this is a bit of
+			** a pain.
+			**
+			** This leaves us for one with the possibility to create another
+			** allocated matrix, which would store results in a serial manner.
+			** Though this requires copying of memory, which I am not keen about
+			** to do.
+			**
+			** Another option would be using a definite buffered writer which we
+			** can flush in an instance which simply overwrites the file when
+			** flushed.
+			 */
+
 			// write by first thread, this just preserves use from heaving T write access for a single opeation which block each other
 			if (tid == 0) {
-				if (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
-					log_err("Could not write to checkpoints");
-					exit(COULD_NOT_WRITE);
+				cooler_matrix[0] = k;
+				// 	f (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
+				// 	log_err("Could not write to checkpoints");
+				// 	exit(COULD_NOT_WRITE);
+				// }
+				if (pwrite(file_descriptor, (void*) cooler_matrix, N*N, sizeof(int) *2) == -1) {
+						log_err("Could not write to checkpoints");
+						exit(COULD_NOT_WRITE);
 				}
 			}
+
 		}
 	}
 	close(file_descriptor);
+	free(cooler_matrix);
 }
 
 /* ************************************************************************ */
