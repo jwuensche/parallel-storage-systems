@@ -1,3 +1,10 @@
+/*
+ * THIS SOLUTION IS INCLUDED FOR REFERENCE AS THE SOLUTION FOR TASK 2.3
+ * CHANGED HOW THE THREADS SAVE THEIR DATA BELOW THE PARALLEL WRITING
+ * CAN BE SEEN AS REQUESTED BY TASK 2.1
+*/
+
+
 /* ************************************************************************ */
 /* Include standard header file.                                            */
 /* ************************************************************************ */
