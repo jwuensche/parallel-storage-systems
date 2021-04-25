@@ -10,7 +10,7 @@ Differences can be seen in two points. For one, `pwrite` receives one more
 parameter describing the position where the buffer should be written (instead
 of at the current position of the file offset as in `write`). Due to this, the
 file offset does not get changed when using `pwrite`.  In POSIX pwrite operates
-indepedently from the `O_APPEND` flag, whereas in Linux this leads to data
+independently from the `O_APPEND` flag, whereas in Linux this leads to data
 being appended regardless of the given offset.
 
 > see man 3 write and man pwrite
@@ -64,18 +64,17 @@ calling a write on one singular buffer.  This copying occurs after every
 iteration and can lead in large data sets to considerable delay.  Disadvantages
 can also be seen in the required synchronization of threads.
 
-A second approach would be
-the writing into a temporary file, which gets updated by all the threads in
-parallel (aka multiple write calls) and which then gets copied into place after
-all are finished. Part of this is also the synchronization of threads as
-otherwise valid data in the temporary file can be overwritten.
+A second approach would be the writing into a temporary file, which gets updated
+by all the threads in parallel (aka multiple write calls) and which then gets
+copied into place after all are finished. Part of this is also the
+synchronization of threads as otherwise valid data in the temporary file can be
+overwritten.
 
 Advantage of this variant is the parallelization of write calls and relatively
 easy implementation of this method.  Disadvantages are the dependency on N (N
 being the amount of threads) write calls per iteration and the non-isolation of
 the intermediate results. Again for this method we have to synchronize the
 threads.
-
 
 A third approach could be the creation of channels for new values. Advantage of
 this is that threads do not have to be synchronized, for writing results a
