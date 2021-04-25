@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/fcntl.h>
 #include <unistd.h>
+#include <stdatomic.h>
 
 /* CONSTANTS */
 #define N 360
@@ -20,6 +21,9 @@
 #define COULD_NOT_WRITE 3
 #define BROKEN_FORMAT 4
 #define INVALID_PARAM 5
+
+atomic_ulong iop;
+atomic_ulong bytes;
 
 /* time measurement variables */
 struct timeval start_time;       /* time when program started               */
@@ -94,10 +98,10 @@ alloc_matrix (void)
 /*  offsets                                                                 */
 /* ************************************************************************ */
 
-const int isch = sizeof(int) * 3;
+const int header_size = sizeof(int) * 3;
 
 unsigned long calc_offset(int row) {
-	return row * N * sizeof(double) + isch;
+	return row * N * sizeof(double) + header_size;
 }
 
 /* ************************************************************************* */
@@ -158,6 +162,7 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 		log_err("Reading of threads in file failed");
 		exit(BROKEN_FORMAT);
 	}
+	iop++;
 
 	if (threads != info->threads) {
 		// This may only be a warning that parameters have changed, but it's not
@@ -170,11 +175,13 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 		log_err("Reading of iteration total in file failed");
 		exit(BROKEN_FORMAT);
 	}
+	iop++;
 
 	if (pread(file, &iteration_completed, sizeof(int), sizeof(int) * 2) == -1) {
 		log_err("Reading of iterations completed in file failed");
 		exit(BROKEN_FORMAT);
 	}
+	iop++;
 
 	info->iterations_completed = iteration_completed;
 
@@ -197,6 +204,7 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 			log_err("Could not read matrix values");
 			exit(BROKEN_FORMAT);
 		}
+		iop++;
 	}
 	close(file);
 }
@@ -218,7 +226,7 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 	lines = from = to = -1;
 	int file_descriptor;
 	// open is WELL defined
-	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR, 420/69)) == -1) {
+	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR, "I have no purpose")) == -1) {
 		log_err("Could not open checkpoint file for writing");
 		exit(COULD_NOT_OPEN);
 	}
@@ -228,12 +236,16 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 		log_err("Could not write to checkpoints");
 		exit(COULD_NOT_WRITE);
 	}
+	iop++;
+	atomic_fetch_add(&bytes, sizeof(int));
 
 	// Write total iterations
 	if (pwrite(file_descriptor, &info->iteration, sizeof(int), sizeof(int) * 1) == -1) {
 		log_err("Could not write to checkpoints");
 		exit(COULD_NOT_WRITE);
 	}
+	iop++;
+	atomic_fetch_add(&bytes, sizeof(int));
 
 	// Explicitly disable dynamic teams
 	omp_set_dynamic(0);
@@ -272,6 +284,8 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 				// 	log_err("Could not write to checkpoints");
 				// 	exit(COULD_NOT_WRITE);
 				// }
+				// iop++;
+				// atomic_fetch_add(&bytes, sizeof(double) * N);
 			}
 			#pragma omp barrier
 
@@ -298,15 +312,19 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 
 			// write by first thread, this just preserves use from heaving T write access for a single opeation which block each other
 			if (tid == 0) {
-				cooler_matrix[0] = k;
-				// 	f (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
+				// 	if (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
 				// 	log_err("Could not write to checkpoints");
 				// 	exit(COULD_NOT_WRITE);
 				// }
-				if (pwrite(file_descriptor, (void*) cooler_matrix, N*N, sizeof(int) *2) == -1) {
+				// iop++;
+				// atomic_fetch_add(&bytes, sizeof(int);
+				cooler_matrix[0] = k;
+				if (pwrite(file_descriptor, cooler_matrix, N * N * sizeof(double) + sizeof(int), sizeof(int) *2) == -1) {
 						log_err("Could not write to checkpoints");
 						exit(COULD_NOT_WRITE);
 				}
+				iop++;
+				atomic_fetch_add(&bytes,  N * N * sizeof(double) + sizeof(int));
 			}
 			#pragma omp barrier
 		}
@@ -325,8 +343,8 @@ displayStatistics (void)
 	double time = (comp_time.tv_sec - start_time.tv_sec) + (comp_time.tv_usec - start_time.tv_usec) * 1e-6;
 
 	printf("Runtime:    %fs\n", time);
-	printf("Throughput: %f MB/s\n", 0.0);
-	printf("IOPS:       %f Op/s\n", 0.0);
+	printf("Throughput: %f MB/s\n", (double)atomic_load(&bytes) / time / 1000 / 1000);
+	printf("IOPS:       %f Op/s\n", (double)atomic_load(&iop) / time);
 }
 
 /* ************************************************************************ */
