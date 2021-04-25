@@ -1,3 +1,10 @@
+/*
+ * This file is included for reference as our solution changed the way the
+ * write operates to allow for a more atomic behavior. This file can be
+ * compiled with `make checkpoint_parallel`
+ */
+
+
 /* ************************************************************************ */
 /* Include standard header file.                                            */
 /* ************************************************************************ */
