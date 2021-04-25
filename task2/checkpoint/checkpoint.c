@@ -336,21 +336,19 @@ int
 main (int argc, char** argv)
 {
 	int threads, iterations;
-	char* path = calloc(256, sizeof(char));
+	char* path;
 	double** matrix;
 
-
-	if (argc < 4)
-	{
-		printf("Usage: %s threads iterations path\n", argv[0]);
+	if (argc < 3) {
+		printf("Usage: %s <threads> <iterations> [path]\n", argv[0]);
 		exit(EXIT_FAILURE);
+	} else if (argc >= 4) {
+		path = argv[3];
+	} else {
+		path = "matrix.out";
 	}
-	else
-	{
-		sscanf(argv[1], "%d", &threads);
-		sscanf(argv[2], "%d", &iterations);
-		sscanf(argv[3], "%s", path);
-	}
+	sscanf(argv[1], "%d", &threads);
+	sscanf(argv[2], "%d", &iterations);
 
 	struct MatrixInfo info = {threads, iterations, 1};
 
@@ -374,7 +372,6 @@ main (int argc, char** argv)
 	displayStatistics();
 
 	free_matrix(matrix);
-	free(path);
 
 	return 0;
 }
