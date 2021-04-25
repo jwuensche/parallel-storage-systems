@@ -1,10 +1,3 @@
-/*
- * THIS SOLUTION IS INCLUDED FOR REFERENCE AS THE SOLUTION FOR TASK 2.3
- * CHANGED HOW THE THREADS SAVE THEIR DATA BELOW THE PARALLEL WRITING
- * CAN BE SEEN AS REQUESTED BY TASK 2.1
-*/
-
-
 /* ************************************************************************ */
 /* Include standard header file.                                            */
 /* ************************************************************************ */
@@ -20,6 +13,7 @@
 #include <sys/stat.h>
 #include <sys/fcntl.h>
 #include <unistd.h>
+#include <stdatomic.h>
 
 /* CONSTANTS */
 #define N 360
@@ -27,6 +21,9 @@
 #define COULD_NOT_WRITE 3
 #define BROKEN_FORMAT 4
 #define INVALID_PARAM 5
+
+atomic_ulong iop;
+atomic_ulong bytes;
 
 /* time measurement variables */
 struct timeval start_time;       /* time when program started               */
@@ -101,10 +98,10 @@ alloc_matrix (void)
 /*  offsets                                                                 */
 /* ************************************************************************ */
 
-const int isch = sizeof(int) * 3;
+const int header_size = sizeof(int) * 3;
 
 unsigned long calc_offset(int row) {
-	return row * N * sizeof(double) + isch;
+	return row * N * sizeof(double) + header_size;
 }
 
 /* ************************************************************************* */
@@ -165,21 +162,26 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 		log_err("Reading of threads in file failed");
 		exit(BROKEN_FORMAT);
 	}
+	iop++;
 
 	if (threads != info->threads) {
-		log_err("Thread amount differes from checkpoint file");
-		exit(INVALID_PARAM);
+		// This may only be a warning that parameters have changed, but it's not
+		// failure-worthy as the amount of parameters is not fatal if lower or
+		// higher.
+		log_warn("Thread amount differes from checkpoint file");
 	}
 
 	if (pread(file, &iteration_total, sizeof(int), sizeof(int)) == -1) {
 		log_err("Reading of iteration total in file failed");
 		exit(BROKEN_FORMAT);
 	}
+	iop++;
 
 	if (pread(file, &iteration_completed, sizeof(int), sizeof(int) * 2) == -1) {
 		log_err("Reading of iterations completed in file failed");
 		exit(BROKEN_FORMAT);
 	}
+	iop++;
 
 	info->iterations_completed = iteration_completed;
 
@@ -202,6 +204,7 @@ read_matrix (double** matrix, struct MatrixInfo* info, char* path)
 			log_err("Could not read matrix values");
 			exit(BROKEN_FORMAT);
 		}
+		iop++;
 	}
 	close(file);
 }
@@ -217,11 +220,13 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 	int tid;
 	int lines, from, to;
 
+	// int* cooler_matrix = malloc(N*N*sizeof(double) + sizeof(int));
+
 	tid = 0;
 	lines = from = to = -1;
 	int file_descriptor;
 	// open is WELL defined
-	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR, 420/69)) == -1) {
+	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR, "I have no purpose")) == -1) {
 		log_err("Could not open checkpoint file for writing");
 		exit(COULD_NOT_OPEN);
 	}
@@ -231,12 +236,16 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 		log_err("Could not write to checkpoints");
 		exit(COULD_NOT_WRITE);
 	}
+	iop++;
+	atomic_fetch_add(&bytes, sizeof(int));
 
 	// Write total iterations
 	if (pwrite(file_descriptor, &info->iteration, sizeof(int), sizeof(int) * 1) == -1) {
 		log_err("Could not write to checkpoints");
 		exit(COULD_NOT_WRITE);
 	}
+	iop++;
+	atomic_fetch_add(&bytes, sizeof(int));
 
 	// Explicitly disable dynamic teams
 	omp_set_dynamic(0);
@@ -266,23 +275,62 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 			// We will use pwrite in this case due to the advantages in parallel environments as described in `checkpoint-answers.txt`
 			// Also since formatting is no problem, we will simply use byte offsets to differentiate between numbers and provide no human readable
 			for (i = from; i < to; i++) {
+				// double* offset_double = (double*)&cooler_matrix[1];
+				// for (size_t idx = 0; idx < N; idx +=1) {
+				// 	offset_double[N * i + idx] = matrix[i][idx];
+				// }
 				// printf("matrix[%d]: %p, size: %ld, offset: %ld, tid: %d\n", i, (void*)matrix[i], sizeof(double)*N, (i * N * sizeof(double)) + isch, tid);
 				if (pwrite(file_descriptor, matrix[i], sizeof(double) * N, calc_offset(i)) == -1) {
 					log_err("Could not write to checkpoints");
 					exit(COULD_NOT_WRITE);
 				}
+				iop++;
+				atomic_fetch_add(&bytes, sizeof(double) * N);
 			}
 			#pragma omp barrier
+
+			/*
+			** Really depends on how we define atomic writing herre, in POSIX
+			** this atomicity may be done via a single system call, so the idea
+			** would be to change the current writing method and replace it with
+			** a more efficient call to a single write instruction.
+			**
+			** For this purpose we will use the first thread again as this one
+			** is our write slave and yeet them out. Problems occurs here in how
+			** the matrix is saved. As nested pointers are used this is a bit of
+			** a pain.
+			**
+			** This leaves us for one with the possibility to create another
+			** allocated matrix, which would store results in a serial manner.
+			** Though this requires copying of memory, which I am not keen about
+			** to do.
+			**
+			** Another option would be using a definite buffered writer which we
+			** can flush in an instance which simply overwrites the file when
+			** flushed.
+			 */
+
 			// write by first thread, this just preserves use from heaving T write access for a single opeation which block each other
 			if (tid == 0) {
 				if (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
 					log_err("Could not write to checkpoints");
 					exit(COULD_NOT_WRITE);
 				}
+				iop++;
+				atomic_fetch_add(&bytes, sizeof(int));
+				// cooler_matrix[0] = k;
+				// if (pwrite(file_descriptor, cooler_matrix, N * N * sizeof(double) + sizeof(int), sizeof(int) *2) == -1) {
+				// 		log_err("Could not write to checkpoints");
+				// 		exit(COULD_NOT_WRITE);
+				// }
+				// iop++;
+				// atomic_fetch_add(&bytes,  N * N * sizeof(double) + sizeof(int));
 			}
+			#pragma omp barrier
 		}
 	}
 	close(file_descriptor);
+	// free(cooler_matrix);
 }
 
 /* ************************************************************************ */
@@ -295,8 +343,8 @@ displayStatistics (void)
 	double time = (comp_time.tv_sec - start_time.tv_sec) + (comp_time.tv_usec - start_time.tv_usec) * 1e-6;
 
 	printf("Runtime:    %fs\n", time);
-	printf("Throughput: %f MB/s\n", 0.0);
-	printf("IOPS:       %f Op/s\n", 0.0);
+	printf("Throughput: %f MB/s\n", (double)atomic_load(&bytes) / time / 1000 / 1000);
+	printf("IOPS:       %f Op/s\n", (double)atomic_load(&iop) / time);
 }
 
 /* ************************************************************************ */
@@ -306,21 +354,19 @@ int
 main (int argc, char** argv)
 {
 	int threads, iterations;
-	char* path = calloc(256, sizeof(char));
+	char* path;
 	double** matrix;
 
-
-	if (argc < 4)
-	{
-		printf("Usage: %s threads iterations path\n", argv[0]);
+	if (argc < 3) {
+		printf("Usage: %s <threads> <iterations> [path]\n", argv[0]);
 		exit(EXIT_FAILURE);
+	} else if (argc >= 4) {
+		path = argv[3];
+	} else {
+		path = "matrix.out";
 	}
-	else
-	{
-		sscanf(argv[1], "%d", &threads);
-		sscanf(argv[2], "%d", &iterations);
-		sscanf(argv[3], "%s", path);
-	}
+	sscanf(argv[1], "%d", &threads);
+	sscanf(argv[2], "%d", &iterations);
 
 	struct MatrixInfo info = {threads, iterations, 1};
 
@@ -344,7 +390,6 @@ main (int argc, char** argv)
 	displayStatistics();
 
 	free_matrix(matrix);
-	free(path);
 
 	return 0;
 }
