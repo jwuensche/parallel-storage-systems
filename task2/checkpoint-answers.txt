@@ -1,0 +1,89 @@
+`write` vs `pwrite`
+==================
+
+Both functions are mostly identical in their working receiving a file
+descriptor, a buffer containing the content and a the size of the content to be
+written in bytes.  The return type represents the total bytes which have been
+actually written.
+
+Differences can be seen in two points. For one, `pwrite` receives one more
+parameter describing the position where the buffer should be written (instead
+of at the current position of the file offset as in `write`). Due to this, the
+file offset does not get changed when using `pwrite`.  In POSIX pwrite operates
+independently from the `O_APPEND` flag, whereas in Linux this leads to data
+being appended regardless of the given offset.
+
+> see man 3 write and man pwrite
+
+total runtime throughput vs i/o operation time spend throughput
+=============================================
+
+We have chosen the total runtime throughput as our base time for measurement. If
+we chose to measure throughput and IOPS based on the time spend for i/o
+operations we would simply measure the throughput achievable in our system, in
+comparison to the resources consumed on average in our application run.
+Because of this we have chosen to measure the bandwidth and IOPS with timestamp
+before and after the calculation function.
+
+Reading of checkpoints: Parameter Mismatches
+============================================
+
+1. T_1 != T_2, where the matrix size is not dependent on the number of threads
+
+If this is the case we warn the user that another number of threads has been
+used, this results only in a warning as the number of threads is not related to
+the matrix size and threads can redistribute the workload at the beginning of
+each invocation of the program. It is more likely in this case that a change in
+the parameters was either desired to increase or decrease the workload or
+something like a typo or scripting error. Optimally we would add another flag
+`--force` which would allow this behavior, if not present the different number
+of threads would return an error code.
+
+2. I_c < I_1
+
+Continue the computation. This is really only the case when the computation has
+been interrupted prematurely. In our implementation we modify the information
+given to accommodate this partial completion, and start in the `calculate`
+function from the last completed iteration.
+
+3. I_c = I_1 and I_1 >= I_2
+
+In this case our implementation informs the user that the computation has been
+completed and does the given number of iterations is already fulfilled. An error
+code for invalid parameters (5) is returned.
+
+Atomic writing of checkpoints
+=============================
+
+In this scope atomic describes a transaction on the file content, to avoid
+faulty and incorrect states of the saved matrix. Two possible solutions for this
+are, first the synchronization of threads and buffering of results into a common
+serialized address space including the changed header and new values for the
+matrix which is then written in a single write call.
+
+Advantage of this variant is that the atomicity can be guaranteed with a
+singular write call and all state is hold within the application memory space
+leaving it interruption independent.  Disadvantages lie in the current structure
+of the code, due to nested allocated pointers, copying is required before
+calling a write on one singular buffer.  This copying occurs after every
+iteration and can lead in large data sets to considerable delay.  Disadvantages
+can also be seen in the required synchronization of threads.
+
+A second approach would be the writing into a temporary file, which gets updated
+by all the threads in parallel (aka multiple write calls) and which then gets
+copied into place after all are finished. Part of this is also the
+synchronization of threads as otherwise valid data in the temporary file can be
+overwritten.
+
+Advantage of this variant is the parallelization of write calls and relatively
+easy implementation of this method.  Disadvantages are the dependency on N (N
+being the amount of threads) write calls per iteration and the non-isolation of
+the intermediate results. Again for this method we have to synchronize the
+threads.
+
+A third approach could be the creation of channels for new values. Advantage of
+this is that threads do not have to be synchronized, for writing results a
+separate thread can be utilized which operates detached from the calculation,
+synchronizing the data channels from all computation threads. This would be a
+larger implementation effort but would result in a better utilization of
+resources.

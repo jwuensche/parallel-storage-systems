@@ -39,6 +39,7 @@ struct MatrixInfo {
 /*  Define log functions                                                    */
 /* ************************************************************************ */
 int log_color(char* code, char* msg) {
+	// TODO: Check for negative values here
 	fprintf(stderr, "%s", code);
 	fprintf(stderr, "%s", msg);
 	fprintf(stderr, "\x1b[0m\n");
@@ -219,13 +220,13 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 	int tid;
 	int lines, from, to;
 
-	int* cooler_matrix = malloc(N*N*sizeof(double) + sizeof(int));
+	// int* cooler_matrix = malloc(N*N*sizeof(double) + sizeof(int));
 
 	tid = 0; // NOLINT
 	lines = from = to = -1; // NOLINT
 	int file_descriptor;
 	// open is WELL defined
-	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR, "I have no purpose")) == -1) {
+	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR /*, "I have no purpose"*/)) == -1) {
 		log_err("Could not open checkpoint file for writing");
 		exit(COULD_NOT_OPEN);
 	}
@@ -274,17 +275,17 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 			// We will use pwrite in this case due to the advantages in parallel environments as described in `checkpoint-answers.txt`
 			// Also since formatting is no problem, we will simply use byte offsets to differentiate between numbers and provide no human readable
 			for (i = from; i < to; i++) {
-				double* offset_double = (double*)&cooler_matrix[1];
-				for (size_t idx = 0; idx < N; idx +=1) {
-					offset_double[N * i + idx] = matrix[i][idx];
-				}
-				// printf("matrix[%d]: %p, size: %ld, offset: %ld, tid: %d\n", i, (void*)matrix[i], sizeof(double)*N, (i * N * sizeof(double)) + isch, tid);
-				// if (pwrite(file_descriptor, matrix[i], sizeof(double) * N, calc_offset(i)) == -1) {
-				// 	log_err("Could not write to checkpoints");
-				// 	exit(COULD_NOT_WRITE);
+				// double* offset_double = (double*)&cooler_matrix[1];
+				// for (size_t idx = 0; idx < N; idx +=1) {
+				// 	offset_double[N * i + idx] = matrix[i][idx];
 				// }
-				// iop++;
-				// atomic_fetch_add(&bytes, sizeof(double) * N);
+				// printf("matrix[%d]: %p, size: %ld, offset: %ld, tid: %d\n", i, (void*)matrix[i], sizeof(double)*N, (i * N * sizeof(double)) + isch, tid);
+				if (pwrite(file_descriptor, matrix[i], sizeof(double) * N, calc_offset(i)) == -1) {
+					log_err("Could not write to checkpoints");
+					exit(COULD_NOT_WRITE);
+				}
+				iop++;
+				atomic_fetch_add(&bytes, sizeof(double) * N);
 			}
 			#pragma omp barrier
 
@@ -311,25 +312,25 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 
 			// write by first thread, this just preserves use from heaving T write access for a single opeation which block each other
 			if (tid == 0) {
-				// 	if (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
-				// 	log_err("Could not write to checkpoints");
-				// 	exit(COULD_NOT_WRITE);
-				// }
-				// iop++;
-				// atomic_fetch_add(&bytes, sizeof(int);
-				cooler_matrix[0] = k;
-				if (pwrite(file_descriptor, cooler_matrix, N * N * sizeof(double) + sizeof(int), sizeof(int) *2) == -1) {
-						log_err("Could not write to checkpoints");
-						exit(COULD_NOT_WRITE);
+				if (pwrite(file_descriptor, &k, sizeof(int), sizeof(int) * 2) == -1) {
+					log_err("Could not write to checkpoints");
+					exit(COULD_NOT_WRITE);
 				}
 				iop++;
-				atomic_fetch_add(&bytes,  N * N * sizeof(double) + sizeof(int));
+				atomic_fetch_add(&bytes, sizeof(int));
+				// cooler_matrix[0] = k;
+				// if (pwrite(file_descriptor, cooler_matrix, N * N * sizeof(double) + sizeof(int), sizeof(int) *2) == -1) {
+				// 		log_err("Could not write to checkpoints");
+				// 		exit(COULD_NOT_WRITE);
+				// }
+				// iop++;
+				// atomic_fetch_add(&bytes,  N * N * sizeof(double) + sizeof(int));
 			}
 			#pragma omp barrier
 		}
 	}
 	close(file_descriptor);
-	free(cooler_matrix);
+	// free(cooler_matrix);
 }
 
 /* ************************************************************************ */

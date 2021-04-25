@@ -4,5 +4,8 @@ LDLIBS = -lm
 
 checkpoint: checkpoint.c
 
+checkpoint_parallel: checkpoint_parallel.c
+
 clean:
 	$(RM) checkpoint
+	$(RM) checkpoint_parallel
