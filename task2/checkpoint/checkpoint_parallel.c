@@ -222,11 +222,11 @@ calculate (double** matrix, struct MatrixInfo* info, char* path)
 
 	// int* cooler_matrix = malloc(N*N*sizeof(double) + sizeof(int));
 
-	tid = 0;
-	lines = from = to = -1;
+	tid = 0; // NOLINT
+	lines = from = to = -1; // NOLINT
 	int file_descriptor;
 	// open is WELL defined
-	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR, "I have no purpose")) == -1) {
+	if ((file_descriptor = open(path, O_RDWR | O_CREAT, S_IWUSR | S_IRUSR /*, "I have no purpose"*/)) == -1) {
 		log_err("Could not open checkpoint file for writing");
 		exit(COULD_NOT_OPEN);
 	}
