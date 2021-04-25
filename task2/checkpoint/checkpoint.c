@@ -39,7 +39,6 @@ struct MatrixInfo {
 /*  Define log functions                                                    */
 /* ************************************************************************ */
 int log_color(char* code, char* msg) {
-	// TODO: Check for negative values here
 	fprintf(stderr, "%s", code);
 	fprintf(stderr, "%s", msg);
 	fprintf(stderr, "\x1b[0m\n");

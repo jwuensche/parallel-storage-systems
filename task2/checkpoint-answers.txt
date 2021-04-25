@@ -15,10 +15,15 @@ being appended regardless of the given offset.
 
 > see man 3 write and man pwrite
 
-total runtime throughput vs action throughput
+total runtime throughput vs i/o operation time spend throughput
 =============================================
 
-> TODO: Explain why one over the other
+We have chosen the total runtime throughput as our base time for measurement. If
+we chose to measure throughput and IOPS based on the time spend for i/o
+operations we would simply measure the throughput achievable in our system, in
+comparison to the resources consumed on average in our application run.
+Because of this we have chosen to measure the bandwidth and IOPS with timestamp
+before and after the calculation function.
 
 Reading of checkpoints: Parameter Mismatches
 ============================================
