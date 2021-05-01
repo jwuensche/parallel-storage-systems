@@ -10,3 +10,5 @@ checkpoint_optimized: checkpoint_optimized.c
 
 clean:
 	$(RM) checkpoint
+	$(RM) checkpoint_fsync
+	$(RM) checkpoint_optimized
