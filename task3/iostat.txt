@@ -11,6 +11,7 @@ IOPS:       93210.273438 Op/s
 legend:
 
 The output of our statistic.
+
 threads : number of threads provided as input parameter
 iterations : number of iterations provided as input parameter
 wallclock : time the whole apllication needed to run
@@ -43,8 +44,8 @@ The CPU values are averages over all processors
 %user : percentage of CPU utilization that occured while executing at application level
 %system : percentage of CPU utilization that occured while executing at kernel level
 %iowait : percentage of time the CPU were idle during which the system had a pending disk I/O request          
-%steal :  percentage of time spent in involuntary wait by the virtual CPU or CPUs
-	while the hypervisor was servicing another virtual processor.
+%steal : percentage of time spent in involuntary wait by the virtual CPU or CPUs
+	 while the hypervisor was servicing another virtual processor.
 %idle : percentage of time the CPU was idle and the system did not have any pending I/O request           
 
 /* ************************************************************************ */
@@ -62,11 +63,14 @@ legend:
 
 r/s : read requests completed per second for the device
 w/s : write requests completed per second for the device
+f/s : The number (after merges) of flush requests completed per second for the device.
+      This counts flush requests executed by disks. Flush requests are not tracked for partitions.
+      Before being merged, flush operations are counted as writes.
 rMB/s : number of MB read from the device per second
 wMB/s : number of MB written to the device per second
 rrqm/s : number of read requests merged per second that were queued to the device
 wrqm/s : umber of write requests merged per second that were queued to the device
-await: average time (in milliseconds) for I/O requests to the device to be served,
+await : average time (in milliseconds) for I/O requests to the device to be served,
 	includes time spent in queue and time spent servicing the requests
 r_await : average time for read requests issued to the device to be served
 w_await : average time for write requests issued to the device to be served
@@ -76,6 +80,7 @@ w_await : average time for write requests issued to the device to be served
 
 The iostat command is a monitoring system. For the different subtasks of this tasks
 we used the command with the following flags:
+
 -m displays the statistic in megabytes per second
 -t provides a time stamp to the statistic
 -x shows the extended statistic
@@ -86,14 +91,6 @@ The second argument determines how many reports the command should print.
 There are further arguments to specify the device which should be monitored.
 
 The given command provided a statistic of the last second.
-
-
-//weiter Ausführen
-For this task we have a detailed look into the data provided by the stastic for the write and flush operations.
-We can see the write requests per second (W/s), the written megabytes per second (wMB/s),
-the write requests that were merged queued (wrqm/s),
-the percentage of write requests merged before they were sent to the device (%wrqm)
-
 
 
 /* ************************************************************************ */
@@ -256,10 +253,8 @@ Nevertheless there is a initial spike in writes per seconds observable after the
 This data does not match with the data provided by the application.
 
 
-
-
-
-
+At time stamp 07:41:19 the average size of write requests that were issued to the device (wareq-sz)
+had an huge spike. This was a side effect of another program. Multiple runs showed that.
 
 
 /* ************************************************************************ */
@@ -594,6 +589,9 @@ This is oberservable by the increase of the flush operations from time stamp
 The checkpoint without fsync writes the data aswell but it does not make sure
 that it is writen to disk right away. Here the data is written to a cache.
 A write operation to the disk will then be later performed by the OS.
+
+The fsync application has a huge number of write operations which is due to 
+the flush operations which are counted as write operations before they are merged.
 
 
 
