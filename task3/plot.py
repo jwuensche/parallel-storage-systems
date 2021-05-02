@@ -12,7 +12,7 @@ def total_runtime_plot(df, name):
     fig = go.Figure()
     fig.add_trace(go.Scatter(x=df["threads"], y=df["wallclock"], mode='lines+markers'))
     fig.update_layout(
-        title=f"{name} - application runtime",
+        # title=f"{name} - application runtime",
         yaxis_title="runtime in s",
         xaxis_title="thread count",
         font=dict(
@@ -27,7 +27,7 @@ def relative_runtime_plot(df1, df2, df3, name):
     fig.add_trace(go.Scatter(x=df2["threads"], y=df2["wallclock"]/df2["iterations"], mode='lines+markers', name="checkpoint_fsync"))
     fig.add_trace(go.Scatter(x=df3["threads"], y=df3["wallclock"]/df3["iterations"], mode='lines+markers', name="checkpoint_optimized"))
     fig.update_layout(
-        title=f"{name} - relative application runtime",
+        # title=f"{name} - relative application runtime",
         yaxis_title="seconds per iteration",
         xaxis_title="thread count",
         font=dict(
@@ -42,7 +42,7 @@ def bandwidth_plot(df1, df2, df3, name):
     fig.add_trace(go.Scatter(x=df2["threads"], y=df2["io_bytes"] / 1024 / 1024 / df2["wallclock"], mode='lines+markers', name="checkpoint_fsync"))
     fig.add_trace(go.Scatter(x=df3["threads"], y=df3["io_bytes"] / 1024 / 1024 / df3["wallclock"], mode='lines+markers', name="checkpoint_optimized"))
     fig.update_layout(
-        title=f"{name} - average throughput",
+        # title=f"{name} - average throughput",
         yaxis_title="throughput in MiB/s",
         xaxis_title="thread count",
         font=dict(
@@ -59,7 +59,7 @@ def idle_chart(df1, df2, df3, name):
     fig.add_trace(go.Bar(name="fsync", x=versions, y=fsync))
     fig.add_trace(go.Bar(name="other_io", x=versions, y=other_io))
     fig.update_layout(
-        title=f"{name} - average io time",
+        # title=f"{name} - average io time",
         yaxis_title="time spend in s",
         barmode="stack",
         font=dict(
@@ -74,7 +74,7 @@ def iops(df1, df2, df3, name):
     fig.add_trace(go.Scatter(x=df2["threads"], y=df2["iop"] / df2["wallclock"], mode='lines+markers', name="checkpoint_fsync"))
     fig.add_trace(go.Scatter(x=df3["threads"], y=df3["iop"] / df3["wallclock"], mode='lines+markers', name="checkpoint_optimized"))
     fig.update_layout(
-        title=f"{name} - io operations",
+        # title=f"{name} - io operations",
         yaxis_title="io operation per second",
         xaxis_title="thread count",
         font=dict(
@@ -89,7 +89,7 @@ def runtime_to_io(df, name):
     fig.add_trace(go.Bar(name="other io", x=df["threads"], y=df["io_time"] - df["fsync_time"]))
     fig.add_trace(go.Bar(name="total runtime", x=df["threads"], y=df["wallclock"]))
     fig.update_layout(
-        title=f"{name} - runtime to io-time",
+        # title=f"{name} - runtime to io-time",
         yaxis_title="time spend in seconds",
         xaxis_title="thread count",
         font=dict(
@@ -97,7 +97,6 @@ def runtime_to_io(df, name):
         )
     )
     fig.write_image(f"plots/time_{name}.svg")
-
 
 
 total_runtime_plot(checkpoint, "checkpoint")

@@ -10,6 +10,9 @@ checkpoint_fsync: checkpoint_fsync.c
 
 checkpoint_optimized: checkpoint_optimized.c
 
+pdf:
+	@pandoc performance.md -o performance.pdf
+
 clean:
 	$(RM) checkpoint
 	$(RM) checkpoint_fsync
