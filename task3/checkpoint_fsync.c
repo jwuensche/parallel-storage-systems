@@ -21,16 +21,28 @@
 
 #define N 360
 #define SEC_TO_NANO 1000000000
-#define SEC_TO_MILI 1000000
 
 /* time measurement variables */
 struct timeval start_time;       /* time when program started               */
 struct timeval comp_time;        /* time when calculation complet           */
 
-size_t io_bytes;
-uint64_t io_ops;
-float io_time;
-float io_fsync;
+/*
+** Put all measurement values into a dedicated structure, this makes handling them more readable
+*/
+struct MatrixInfo {
+	size_t io_bytes;
+	uint64_t io_ops;
+	float io_time;
+	float io_fsync;
+	int thread_count;
+	int iteration;
+	/*
+	** Values describing containing the absolute time used in nanoseconds
+	** Should be enough for round about 500 years
+	*/
+	unsigned long long iotime_counter;
+	unsigned long long fsynctime_counter;
+};
 
 /* ************************************************************************ */
 /*  allocate matrix of size N x N                                           */
@@ -94,7 +106,7 @@ inline long nano_diff(long l, long r) {
 /* ************************************************************************ */
 static
 void
-calculate (double** matrix, int iterations, int threads)
+calculate (double** matrix, struct MatrixInfo* info)
 {
 	int i, j, k, l;
 	int tid;
@@ -111,7 +123,7 @@ calculate (double** matrix, int iterations, int threads)
 
 	// Explicitly disable dynamic teams
 	omp_set_dynamic(0);
-	omp_set_num_threads(threads);
+	omp_set_num_threads(info->thread_count);
 
 	fd = open("matrix.out", O_RDWR | O_CREAT, S_IRUSR | S_IWUSR | S_IRGRP | S_IROTH);
 
@@ -136,11 +148,11 @@ calculate (double** matrix, int iterations, int threads)
 
 		tid = omp_get_thread_num();
 
-		lines = (tid < (N % threads)) ? ((N / threads) + 1) : (N / threads);
-		from =  (tid < (N % threads)) ? (lines * tid) : ((lines * tid) + (N % threads));
+		lines = (tid < (N % info->thread_count)) ? ((N / info->thread_count) + 1) : (N / info->thread_count);
+		from =  (tid < (N % info->thread_count)) ? (lines * tid) : ((lines * tid) + (N % info->thread_count));
 		to = from + lines;
 
-		for (k = 1; k <= iterations; k++)
+		for (k = 1; k <= info->iteration; k++)
 		{
 			for (i = from; i < to; i++)
 			{
@@ -185,15 +197,10 @@ calculate (double** matrix, int iterations, int threads)
 		}
 	}
 
-	io_ops = io_counter;
-	io_time = (float)iotime_counter / SEC_TO_NANO;
-	io_fsync = (float)fsynctime_counter / SEC_TO_NANO;
-	io_bytes = lnb;
-
-	printf("Time spend waiting (total): %llus %lluns\n", iotime_counter / SEC_TO_NANO, iotime_counter % SEC_TO_NANO);
-	printf("Time spend waiting (fsync): %llus %lluns\n", fsynctime_counter / SEC_TO_NANO, fsynctime_counter % SEC_TO_NANO);
-	printf("Proportionally: %f\n",(float) fsynctime_counter / (float) iotime_counter);
-
+	info->io_ops = io_counter;
+	info->io_time = (float)iotime_counter / SEC_TO_NANO;
+	info->io_fsync = (float)fsynctime_counter / SEC_TO_NANO;
+	info->io_bytes = lnb;
 	close(fd);
 }
 
@@ -202,15 +209,27 @@ calculate (double** matrix, int iterations, int threads)
 /* ************************************************************************ */
 static
 void
-displayStatistics (void)
+displayStatistics (struct MatrixInfo* info)
 {
 	double time = (comp_time.tv_sec - start_time.tv_sec) + (comp_time.tv_usec - start_time.tv_usec) * 1e-6;
 
-	printf("Wallclock:  %fs\n", time);
-	printf("I/O time:   %fs\n", io_time);
-	printf("fsync time: %fs\n", io_fsync);
-	printf("Throughput: %f MiB/s\n", io_bytes / 1024 / 1024 / io_time);
-	printf("IOPS:       %f Op/s\n", io_ops / io_time);
+	/*
+	** For better usage lets use unix style combinations here, the output from stdout from this
+	** application can be piped later on to a file or similar...
+	**
+	** All outputs are in units, seconds whereever applicable.
+	** Optionally we might output
+	*/
+	printf("threads,iterations,wallclock,io_time,fsync_time,io_bytes,iop\n");
+	printf("%d,%d,%f,%f,%f,%lu,%lu\n",
+		   info->thread_count,
+		   info->iteration,
+		   time,
+		   info->io_time,
+		   info->io_fsync,
+		   info->io_bytes,
+		   info->io_ops
+		   );
 }
 
 /* ************************************************************************ */
@@ -233,14 +252,19 @@ main (int argc, char** argv)
 		sscanf(argv[2], "%d", &iterations);
 	}
 
+	struct MatrixInfo info;
+
+	info.thread_count = threads;
+	info.iteration = iterations;
+
 	matrix = alloc_matrix();
 	init_matrix(matrix);
 
 	gettimeofday(&start_time, NULL);
-	calculate(matrix, iterations, threads);
+	calculate(matrix, &info);
 	gettimeofday(&comp_time, NULL);
 
-	displayStatistics();
+	displayStatistics(&info);
 
 	return 0;
 }
