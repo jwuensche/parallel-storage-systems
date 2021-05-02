@@ -215,6 +215,7 @@ calculate (double** matrix, struct MatrixInfo* info) {
 
 			clock_gettime(CLOCK_TAI, &io_end_time);
 			iotime_counter += nano_diff(io_start_time, io_end_time);
+			#pragma omp barrier
 		}
 	}
 
