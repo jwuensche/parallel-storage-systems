@@ -1,0 +1,11 @@
+This implementation can be greatly optimized by reducing the amount of write
+calls necessary to the file descriptor.  Each call adds some overhead especially
+since the changes which have been get updated in parallel and each iteration
+calls fsync. Additionally the fsync calls are not necessary to be called on
+after every write call.  A simpler version would be to call fsync once at the
+end of each operation to ensure that the iteration is written to the disk.
+
+Further improvement can be done in multiple ways, for example a serialization of
+results of the whole matrix or calling another thread which handles the file
+synchronization allowing the calculation on the main memory version of the
+matrix to continue.

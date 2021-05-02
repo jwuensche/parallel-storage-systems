@@ -173,9 +173,8 @@ calculate (double** matrix, struct MatrixInfo* info) {
 					** Each call adds some overhead especially since the changes which have been get updated in parallel and each iteration calls
 					** fsync.
 					**
-					** The first step would be simply write down the results in a manner which does not require writing every single double value
-					** out singularly, after this the synchronization of the file descriptor maybe be moved to the end.
-					** Additionally only one thread may call the synchronization as more are not necessary.
+					** The synchronization of the file descriptor maybe be moved to the end
+					** and only one thread may call the synchronization as more are not necessary.
 					*/
 					// nb = 0;
 					// while (nb < (N * sizeof(double)))
