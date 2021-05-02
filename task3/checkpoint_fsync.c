@@ -95,19 +95,7 @@ init_matrix (double** matrix)
 }
 
 inline unsigned long long nano_diff(struct timespec l, struct timespec r) {
-	unsigned long long foo;
-	if (r.tv_sec > l.tv_sec) {
-		foo = ((unsigned long long)(r.tv_sec - l.tv_sec)) * SEC_TO_NANO;
-	} else {
-		foo = ((unsigned long long)(l.tv_sec - r.tv_sec)) * SEC_TO_NANO;
-	}
-	unsigned long long rest;
-	if (l.tv_nsec > r.tv_nsec) {
-		rest = l.tv_nsec - r.tv_nsec;
-	} else {
-		rest = r.tv_nsec - l.tv_nsec;
-	}
-	return foo + rest;
+	return (r.tv_sec - l.tv_sec) * SEC_TO_NANO + (r.tv_nsec - l.tv_nsec);
 }
 
 /* ************************************************************************ */

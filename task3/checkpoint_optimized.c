@@ -95,19 +95,7 @@ init_matrix (double** matrix)
 }
 
 inline unsigned long long nano_diff(struct timespec l, struct timespec r) {
-	unsigned long long foo;
-	if (r.tv_sec > l.tv_sec) {
-		foo = ((unsigned long long)(r.tv_sec - l.tv_sec)) * SEC_TO_NANO;
-	} else {
-		foo = ((unsigned long long)(l.tv_sec - r.tv_sec)) * SEC_TO_NANO;
-	}
-	unsigned long long rest;
-	if (l.tv_nsec > r.tv_nsec) {
-		rest = l.tv_nsec - r.tv_nsec;
-	} else {
-		rest = r.tv_nsec - l.tv_nsec;
-	}
-	return foo + rest;
+	return (r.tv_sec - l.tv_sec) * SEC_TO_NANO + (r.tv_nsec - l.tv_nsec);
 }
 
 /* ************************************************************************ */
@@ -211,7 +199,12 @@ calculate (double** matrix, struct MatrixInfo* info) {
 			#pragma omp barrier
 
 			/*
-			** Synchronize on first thread to reduce it to a minimum
+			** Synchronize on first thread to reduce it to a minimum.
+			** In this case we simply take advantage of the cache, which allows for non-yet performed
+			** write operations, as our buffer and flush this buffer in the end with a single `fsync`.
+			**
+			** This carries the advantage compared to the previous implementation of lesser syncs in total reducing overhead
+			** and by this increasing efficiency.
 			*/
 			if (tid == 0) {
 				clock_gettime(CLOCK_TAI, &fsync_start_time);
