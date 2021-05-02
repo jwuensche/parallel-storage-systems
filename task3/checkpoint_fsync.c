@@ -94,11 +94,20 @@ init_matrix (double** matrix)
 	}
 }
 
-inline long nano_diff(long l, long r) {
-	if (l > r) {
-		return l - r;
+inline unsigned long long nano_diff(struct timespec l, struct timespec r) {
+	unsigned long long foo;
+	if (r.tv_sec > l.tv_sec) {
+		foo = ((unsigned long long)(r.tv_sec - l.tv_sec)) * SEC_TO_NANO;
+	} else {
+		foo = ((unsigned long long)(l.tv_sec - r.tv_sec)) * SEC_TO_NANO;
 	}
-	return r - l;
+	unsigned long long rest;
+	if (l.tv_nsec > r.tv_nsec) {
+		rest = l.tv_nsec - r.tv_nsec;
+	} else {
+		rest = r.tv_nsec - l.tv_nsec;
+	}
+	return foo + rest;
 }
 
 /* ************************************************************************ */
@@ -179,9 +188,9 @@ calculate (double** matrix, struct MatrixInfo* info)
 						clock_gettime(CLOCK_TAI, &fsync_start_time);
 						fsync(fd);
 						clock_gettime(CLOCK_TAI, &fsync_end_time);
-						fsynctime_counter += ((unsigned long long)(fsync_end_time.tv_sec - fsync_start_time.tv_sec))
-							* SEC_TO_NANO
-							+ (unsigned long long)nano_diff(fsync_start_time.tv_nsec, fsync_end_time.tv_nsec);
+						fsynctime_counter += nano_diff(fsync_start_time, fsync_end_time);
+
+
 						io_counter++;
 					}
 					lnb += nb;
@@ -190,9 +199,7 @@ calculate (double** matrix, struct MatrixInfo* info)
 			}
 
 			clock_gettime(CLOCK_TAI, &io_end_time);
-			iotime_counter += ((unsigned long long)(io_end_time.tv_sec - io_start_time.tv_sec))
-				* SEC_TO_NANO
-				+ (unsigned long long)nano_diff(io_start_time.tv_nsec, io_end_time.tv_nsec);
+			iotime_counter += nano_diff(io_start_time, io_end_time);
 			#pragma omp barrier
 		}
 	}
@@ -201,6 +208,8 @@ calculate (double** matrix, struct MatrixInfo* info)
 	info->io_time = (float)iotime_counter / SEC_TO_NANO;
 	info->io_fsync = (float)fsynctime_counter / SEC_TO_NANO;
 	info->io_bytes = lnb;
+	info->iotime_counter = iotime_counter;
+	info->fsynctime_counter = fsynctime_counter;
 	close(fd);
 }
 
