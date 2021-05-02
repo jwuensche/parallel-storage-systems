@@ -103,8 +103,7 @@ inline unsigned long long nano_diff(struct timespec l, struct timespec r) {
 /* ************************************************************************ */
 static
 void
-calculate (double** matrix, struct MatrixInfo* info)
-{
+calculate (double** matrix, struct MatrixInfo* info) {
 	int i, j, k, l;
 	int tid;
 	int lines, from, to;
@@ -165,25 +164,53 @@ calculate (double** matrix, struct MatrixInfo* info)
 			clock_gettime(CLOCK_TAI, &io_start_time);
 
 			{ // write
-				size_t nb = 0;
+				// size_t nb = 0;
 
 				for (i = from; i < to; i++)
 				{
-					nb = 0;
-					while (nb < (N * sizeof(double)))
-					{
-						nb += pwrite(fd, (char*)matrix[i] + nb, (N * sizeof(double)) - nb, (i * N * sizeof(double)) + nb);
-						clock_gettime(CLOCK_TAI, &fsync_start_time);
-						fsync(fd);
-						clock_gettime(CLOCK_TAI, &fsync_end_time);
-						fsynctime_counter += nano_diff(fsync_start_time, fsync_end_time);
+					/*
+					** This part can be greatly optimized by reducing the amount of write calls necessary to the file descriptor.
+					** Each call adds some overhead especially since the changes which have been get updated in parallel and each iteration calls
+					** fsync.
+					**
+					** The first step would be simply write down the results in a manner which does not require writing every single double value
+					** out singularly, after this the synchronization of the file descriptor maybe be moved to the end.
+					** Additionally only one thread may call the synchronization as more are not necessary.
+					*/
+					// nb = 0;
+					// while (nb < (N * sizeof(double)))
+					// {
+					// 	nb += pwrite(fd, (char*)matrix[i] + nb, (N * sizeof(double)) - nb, (i * N * sizeof(double)) + nb);
+					// 	clock_gettime(CLOCK_TAI, &fsync_start_time);
+					// 	fsync(fd);
+					// 	clock_gettime(CLOCK_TAI, &fsync_end_time);
+					// 	fsynctime_counter += ((unsigned long long)(fsync_end_time.tv_sec - fsync_start_time.tv_sec))
+					// 		* SEC_TO_NANO
+					// 		+ (unsigned long long)nano_diff(fsync_start_time.tv_nsec, fsync_end_time.tv_nsec);
+					// 	io_counter++;
+					// }
+					// lnb += nb
 
-
-						io_counter++;
-					}
-					lnb += nb;
-
+					lnb += pwrite(fd, matrix[i], N * sizeof(double), (i * N * sizeof(double)));
+					io_counter++;
 				}
+			}
+
+			#pragma omp barrier
+
+			/*
+			** Synchronize on first thread to reduce it to a minimum.
+			** In this case we simply take advantage of the cache, which allows for non-yet performed
+			** write operations, as our buffer and flush this buffer in the end with a single `fsync`.
+			**
+			** This carries the advantage compared to the previous implementation of lesser syncs in total reducing overhead
+			** and by this increasing efficiency.
+			*/
+			if (tid == 0) {
+				clock_gettime(CLOCK_TAI, &fsync_start_time);
+				fsync(fd);
+				clock_gettime(CLOCK_TAI, &fsync_end_time);
+				fsynctime_counter += nano_diff(fsync_start_time, fsync_end_time);
 			}
 
 			clock_gettime(CLOCK_TAI, &io_end_time);
@@ -198,6 +225,11 @@ calculate (double** matrix, struct MatrixInfo* info)
 	info->io_bytes = lnb;
 	info->iotime_counter = iotime_counter;
 	info->fsynctime_counter = fsynctime_counter;
+
+	// printf("Time spend waiting (total): %llus %lluns\n", iotime_counter / SEC_TO_NANO, iotime_counter % SEC_TO_NANO);
+	// printf("Time spend waiting (fsync): %llus %lluns\n", fsynctime_counter / SEC_TO_NANO, fsynctime_counter % SEC_TO_NANO);
+	// printf("Proportionally: %f\n",(float) fsynctime_counter / (float) iotime_counter);
+
 	close(fd);
 }
 
@@ -250,7 +282,6 @@ main (int argc, char** argv)
 	}
 
 	struct MatrixInfo info;
-
 	info.thread_count = threads;
 	info.iteration = iterations;
 
