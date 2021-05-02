@@ -2,9 +2,9 @@ Please specify the amount of time you needed in hours.
 Please put an X in the appropriate column below.
 
 Time required:
-Difficult:       [ ] too easy  [ ] spot-on        [ ] too hard
-Instructive:     [ ] a little  [ ] okay           [ ] a lot
-Understandable:  [ ] unclear   [ ] a bit unclear  [ ] clear
+Difficult:       [ ] too easy  [X] spot-on        [ ] too hard
+Instructive:     [X] a little  [ ] okay           [ ] a lot
+Understandable:  [ ] unclear   [ ] a bit unclear  [X] clear
 
 Comments:
 - Amount of time required too high? Did you have problems anywhere?
