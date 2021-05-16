@@ -1,0 +1,191 @@
+DummyFS
+=======
+
+1. Structures
+=============
+
+The basic structure is a collection of information about the most basic state of
+the filesystem.
+
+    struct dummyfs {
+        // For now this is not implemented
+        // inode* inodes;
+        inode cur_inode;
+        struct fs_node* root;
+        char** contents;
+    };
+
+It holds a registry with all buffers representing the content of various files
+over the fs.  Furthermore a counter for used inodes is stored and a reference to
+a struct `root` is present.  This root represent the base structure with which
+we store the current state of the filesystem. The underlying `fs_node` has the
+following information.
+
+    struct fs_node {
+        const char* name;
+        struct fs_node* children;
+        size_t num_children;
+        inode inode;
+        struct stat stat;
+    };
+
+Most of these are rather self-explainatory, the `stat` member is the metadata
+stored for this filesystem entry. The whole filesystem tree is stored in this
+hierarchical manner, the access to which is represent in the path.
+
+2. Internal Workflow and Operations
+===================================
+
+The following section describes the calls and process happening for certain
+filesystem operations.  For any operation we first receive the context of this
+call and the filesystem structures explained in the previous section.
+
+2.1 Creating Files
+------------------
+
+> Command
+    `echo foo > foo`
+> Debug Output
+
+    getattr[NULL] /foo
+        unique: 502, error: -2 (No such file or directory), outsize: 16
+    unique: 504, opcode: CREATE (35), nodeid: 1, insize: 60, pid: 35963
+    create flags: 0x8241 /foo 0100644 umask=0022
+        create[0] flags: 0x8241 /foo
+    getattr[0] /foo
+        NODEID: 4
+        unique: 504, success, outsize: 160
+    unique: 506, opcode: FLUSH (25), nodeid: 4, insize: 64, pid: 35963
+        unique: 506, error: -38 (Function not implemented), outsize: 16
+    unique: 508, opcode: GETXATTR (22), nodeid: 4, insize: 68, pid: 35963
+        unique: 508, error: -38 (Function not implemented), outsize: 16
+    unique: 510, opcode: WRITE (16), nodeid: 4, insize: 84, pid: 35963
+    write[0] 4 bytes to 0 flags: 0x8001
+        write[0] 4 bytes to 0
+        unique: 510, success, outsize: 24
+    unique: 512, opcode: RELEASE (18), nodeid: 4, insize: 64, pid: 0
+        unique: 512, success, outsize: 16
+
+The order of calls can be seen like this:
+    * getattr
+      Checking modes, size, ownership etc.
+      -> We responst with error -2 indicating the file does not exist, due to this create will be called.
+    * create
+      Creating the necessary file
+      (More on the internal workflow below)
+      -> We create the file link and return success.
+
+
+Initially for the creation of files we first check if this file already exists.
+This can be easily done by simply trying to traverse the file path. If this
+succeeds we return an error indicating that this file already exists. If the
+call does not produce a result, we retrieve the node representing the parent
+path for example for a path `/foo/bar/baz` we try to open the path `/foo/bar`.
+Similarly as we before, if this does not succeed we return the according error
+code. If the parent is found, a new inode is given and introduced into the file
+tree.
+
+
+2.2 Deleting Files
+------------------
+
+> Command
+  `rm foo`
+> Debug Output
+
+    LOOKUP /foo
+    getattr[NULL] /foo
+        NODEID: 4
+        unique: 622, success, outsize: 144
+    unique: 624, opcode: UNLINK (10), nodeid: 1, insize: 44, pid: 38281
+    unlink /foo
+        unique: 624, success, outsize: 16
+    unique: 626, opcode: FORGET (2), nodeid: 4, insize: 48, pid: 0
+    FORGET 4/2
+    DELETE: 4
+
+Order of calls and reasoning:
+    * getattr
+      looking up the current metadata for permissions and existence
+    * unlink
+      the unlink is the actual remove operation
+
+
+Similarly to the creation of files the path is first checked for it's existence,
+indicating in the error code that such a file does _not_ exist.  If this call
+suceeds we access the metadata information of the file and set the number of
+links to 0.  This does not remove the file actually from the tree, but for all
+matters we treat this node as being deleted in our implementation.  If this file
+should be created again the content is cleared and the metadata is reset to be
+in accordance with the context of the create call.
+
+2.3 Listing Files
+-----------------
+
+> command
+  `ls`
+> Debug Output
+
+    unique: 730, opcode: OPENDIR (27), nodeid: 1, insize: 48, pid: 39509
+        unique: 730, success, outsize: 32
+    unique: 732, opcode: GETATTR (3), nodeid: 1, insize: 56, pid: 39509
+    getattr[NULL] /
+        unique: 732, success, outsize: 120
+    unique: 734, opcode: READDIRPLUS (44), nodeid: 1, insize: 80, pid: 39509
+    readdirplus[0] from 0
+        unique: 734, success, outsize: 664
+    unique: 736, opcode: READDIR (28), nodeid: 1, insize: 80, pid: 39509
+        unique: 736, success, outsize: 16
+    unique: 738, opcode: RELEASEDIR (29), nodeid: 1, insize: 64, pid: 0
+        unique: 738, success, outsize: 16
+
+Order of calls and reasoning:
+    * opendir
+      check if the current state allows for the directory to be opened
+    * getattr
+      check permissions, existence ...
+    * readdir
+      the actual call to retrieve the directory contents
+    * releasedir
+      explicit call to tell the filesystem that the open handle eventually
+      created at the beginning can be discarded (both functions are not
+      implemented for our FS)
+
+In the first of this step the existence of the path is checked and if this path
+is actually a directory, if any of these conditions are not met, an according
+error code is returned.  If the check proceeds, filler entries for each child of
+the directory are created and inserted via the given `filler` function.
+
+3. Experiment Observations
+==========================
+
+Results:
+
+    fred@carthage: ~/Uni/PSS/Exercise/task4/mnt
+    $ ../checkpoint 4 10 0
+    Runtime:    0.065848s
+    I/O time:   0.049780s
+    Throughput: 180.795500 MB/s
+    IOPS:       72318.200080 Op/s
+
+    fred@carthage: ~/Uni/PSS/Exercise/task4/mnt
+    $ ../checkpoint 4 10 1
+    Runtime:    0.082709s
+    I/O time:   0.055626s
+    Throughput: 161.796298 MB/s
+    IOPS:       64718.519384 Op/s
+
+    fred@carthage: ~/Uni/PSS/Exercise/task4/mnt
+    $ ../checkpoint 4 10 2
+    Runtime:    0.084378s
+    I/O time:   0.051651s
+    Throughput: 174.245541 MB/s
+    IOPS:       69698.216403 Op/s
+
+Explanation:
+
+Visible in this small experimentation set is that the time do not differ from
+another. The `fsync` calls present in version 1 and 2 are simply map to simple
+returns in our DummyFS implementation. So the difference experienced in the
+small examples is mostly due to fluctuations in system load, scheduling and so
+on.
