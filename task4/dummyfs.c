@@ -16,7 +16,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 
-#define TWO_MB sizeof(char) * 2097152
+#define FIVE_MIB sizeof(char) * 5 * 1024 * 1024
 
 typedef unsigned int inode;
 
@@ -57,7 +57,7 @@ void dummyfs_add_file(struct dummyfs* fs, const char* name, inode parent, struct
 	meta->st_gid = gid;
 	meta->st_size = 0;
 	meta->st_blocks = 1;
-	meta->st_blksize = TWO_MB;
+	meta->st_blksize = FIVE_MIB;
 	meta->st_dev = 1337;
 	meta->st_mode = S_IFREG;
 	struct timespec ts;
@@ -69,7 +69,7 @@ void dummyfs_add_file(struct dummyfs* fs, const char* name, inode parent, struct
 
 	fs->root->num_children += 1;
 	// Init content and fs
-	fs->contents[fs->cur_inode] = malloc(TWO_MB);
+	fs->contents[fs->cur_inode] = malloc(FIVE_MIB);
 }
 
 void dummy_add_directory(struct dummyfs* fs, const char* name, inode parent, struct fuse_file_info* fi) {
@@ -292,9 +292,6 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
-	filler(buf, ".", NULL, 0, 0);
-	filler(buf, "..", NULL, 0, 0);
-
 	// Act from root
 	int res = 0;
 
@@ -302,6 +299,8 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 
 	if (node != NULL && (node->stat.st_mode & S_IFDIR) == S_IFDIR) {
 		//printf("READDIR from %s\n", node->name);
+		filler(buf, ".", NULL, 0, 0);
+		filler(buf, "..", NULL, 0, 0);
 		for (size_t idx = 0; idx < node->num_children; idx += 1) {
 			if (node->children[idx].stat.st_nlink > 0) {
 				filler(buf, node->children[idx].name, NULL, 0, 0);
@@ -311,7 +310,7 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 		res = -ENOENT;
 	} else {
 		// invalid type
-		res = -ENOENT;
+		res = -EINVAL;
 	}
 	return res;
 }
