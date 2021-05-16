@@ -33,7 +33,6 @@ struct fs_node {
 	const char* name;
 	struct fs_node* children;
 	size_t num_children;
-	char is_directory;
 	inode inode;
 	struct stat stat;
 };
@@ -44,9 +43,9 @@ void dummyfs_add_file(struct dummyfs* fs, const char* name, inode parent, struct
 
 	// Init new fsnode
 	struct fs_node* c = &fs->root->children[fs->root->num_children];
-	c->name = name;
+	char* bar = malloc(sizeof(char) * 64);
+	c->name = strcpy(bar, name);
 	c->num_children = 0;
-	c->is_directory = 0;
 	c->inode = fs->cur_inode;
 
 	// Init metadata
@@ -82,14 +81,22 @@ void dummyfs_init (struct dummyfs* fs) {
 	fs->contents = malloc(sizeof(char*) * 4096);
 
 	fs->root = malloc(sizeof(struct fs_node));
-	fs->root->name = "Belzebub";
+	fs->root->name = "/";
 	fs->root->children = malloc(sizeof(struct fs_node) * 256);
 	fs->root->num_children = 0;
-	fs->root->is_directory = 1;
 	fs->root->inode = fs->cur_inode;
+	struct stat* meta = &fs->root->stat;
+	meta->st_nlink = 2;
+	meta->st_mode = S_IFDIR | 0777;
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	meta->st_atime = ts.tv_sec;
+	meta->st_mtime = ts.tv_sec;
+	meta->st_ctime = ts.tv_sec;
 
 	// Add Dummy File for now
 	dummyfs_add_file(fs, "matrix.out", fs->cur_inode, NULL, 1000, 1000);
+	dummyfs_add_file(fs, "hello", fs->cur_inode, NULL, 1000, 1000);
 }
 
 /*
@@ -97,22 +104,42 @@ void dummyfs_init (struct dummyfs* fs) {
 ** If no separator is found the whole string is returned
 */
 void get_first_element(const char* source, char* target) {
-	for (size_t idx = 0; idx < strlen(source); idx += 1) {
-		if (source[idx] == '/') {
+	if (strlen(source) == 1 && source[0] == '/') {
+		target[0] = '/';
+		target[1] = '\0';
+		return;
+	}
+	char* full = source + 1;
+	for (size_t idx = 0; idx < strlen(full); idx += 1) {
+		if (full[idx] == '/') {
 			break;
 		}
-		target[idx] = source[idx];
+		target[idx] = full[idx];
+		target[idx+1] = '\0';
 	}
 }
 
-struct fs_node* dummyfs_find_node(struct dummyfs* fs, const char* path) {
+struct fs_node* _dummyfs_find_node(struct dummyfs* fs, const char* path, struct fs_node* parent) {
 	struct fs_node* target = NULL;
-	for (size_t idx; idx < fs->root->num_children; idx += 1) {
-		if (fs->root->children[idx].name) {
-
+	char* next_child[256] = {0};
+	get_first_element(path, next_child);
+	// printf("path = %s\n", path);
+	// printf("next_child = %s\n", next_child);
+	if (strcmp(next_child, "/") == 0 || strcmp(path, "") == 0) {
+		// printf("Found %s\n", parent->name);
+		return parent;
+	}
+	for (size_t idx; idx < parent->num_children; idx += 1) {
+		/// printf("Checking %s\n", parent->children[idx].name);
+		if (strcmp(parent->children[idx].name,next_child) == 0) {
+			return _dummyfs_find_node(fs, path + strlen(next_child) + 1, &parent->children[idx]);
 		}
 	}
 	return target;
+}
+
+struct fs_node* dummyfs_find_node(struct dummyfs* fs, const char* path) {
+	return _dummyfs_find_node(fs, path, fs->root);
 }
 
 static int
@@ -127,9 +154,43 @@ dummyfs_chown (const char* path, uid_t uid, gid_t gid, struct fuse_file_info* fi
 	return 0;
 }
 
+void get_parent_path(const char* path, char* target, char* name) {
+	size_t last = strlen(path);
+	for (size_t idx = strlen(path) - 1; idx >= 0; idx -= 1) {
+		if (path[idx] == '/') {
+			last = idx + 1;
+			break;
+		}
+	}
+	strncpy(target, path, last);
+	strcpy(name, path + last);
+}
+
 static int
 dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 {
+	printf("Entering create for path: %s\n", path);
+	int res = 0;
+	struct fuse_context* ctx = fuse_get_context();
+	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
+
+	if (dummyfs_find_node(fs, path) != NULL) {
+		return -ENOENT;
+	}
+
+	char* parent_path[256];
+	char* name[256];
+	get_parent_path(path, parent_path, name);
+
+	struct fs_node* node = dummyfs_find_node(fs, parent_path);
+	if (node != NULL) {
+		printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
+		dummyfs_add_file(fs, name, node->inode, fi, ctx->uid, ctx->gid);
+		printf("children %d\n", node->num_children);
+	} else {
+		res = -ENOENT;
+	}
+
 	return 0;
 }
 
@@ -142,14 +203,16 @@ dummyfs_getattr (const char* path, struct stat* stbuf, struct fuse_file_info* fi
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
+	struct fs_node* node = dummyfs_find_node(fs, path);
 	memset(stbuf, 0, sizeof(struct stat));
-	if (strcmp(path, "/") == 0) {
-			stbuf->st_mode = S_IFDIR | 0755;
-			stbuf->st_nlink = 2;
-	} else if (strcmp(path+1, "matrix.out") == 0) {
-		*stbuf = fs->root->children[0].stat;
-	} else
-			res = -ENOENT;
+
+	if (node != NULL) {
+		printf("GETATTR from %s\n", node->name);
+		// Write to target memory
+		*stbuf = node->stat;
+	} else {
+		res = -ENOENT;
+	}
 	return res;
 }
 
@@ -176,22 +239,22 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
-	if (strcmp(path,"/") == 0) {
-		printf("Write to root\n");
-		res = -ENOENT;
-	} else if (strcmp(path + 1,"matrix.out") == 0) {
-		printf("READING from matrix.out\n");
-		struct fs_node* node = &fs->root->children[0];
-		inode ino = node->inode;
+
+	struct fs_node* node = dummyfs_find_node(fs, path);
+
+	if (node != NULL && node->stat.st_nlink > 0) {
+		printf("READING from %s\n", node->name);
 		// Write to target memory
-		memcpy(buf, fs->contents[ino] + offset, size);
+		memcpy(buf, fs->contents[node->inode] + offset, size);
 		// Update fs tree
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
 		node->stat.st_atime = ts.tv_sec;
 		res = size;
+	} else if (node == NULL) {
+		res = -ENOENT;
 	} else {
-		printf("INVALID\n");
+		// invalid type
 		res = -ENOENT;
 	}
 
@@ -209,15 +272,24 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	filler(buf, "..", NULL, 0, 0);
 
 	// Act from root
-	(void) path;
+	int res = 0;
 
-	printf("Filling root content \n");
-	for (size_t idx = 0; idx < fs->root->num_children; idx += 1) {
-		filler(buf, fs->root->children[idx].name, NULL, 0, 0);
+	struct fs_node* node = dummyfs_find_node(fs, path);
+
+	if (node != NULL && node->stat.st_mode & S_IFDIR == S_IFDIR) {
+		printf("READDIR from %s\n", node->name);
+		for (size_t idx = 0; idx < node->num_children; idx += 1) {
+			if (node->children[idx].stat.st_nlink > 0) {
+				filler(buf, node->children[idx].name, NULL, 0, 0);
+			}
+		}
+	} else if (node == NULL) {
+		res = -ENOENT;
+	} else {
+		// invalid type
+		res = -ENOENT;
 	}
-	printf("Done\n");
-
-	return 0;
+	return res;
 }
 
 static int
@@ -235,12 +307,44 @@ dummyfs_statfs (const char* path, struct statvfs* stbuf)
 static int
 dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 {
-	return 0;
+	printf("Entering truncate for path %s (%d bytes)\n", path, size);
+	struct fuse_context* ctx = fuse_get_context();
+	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
+	int res = 0;
+
+	struct fs_node* node = dummyfs_find_node(fs, path);
+
+	if (node != NULL ) {
+		if (node->stat.st_size < size) {
+			return -1;
+		}
+		node->stat.st_size = size;
+		printf("Setting size to %d", node->stat.st_size);
+	} else {
+		res = -ENOENT;
+	}
+
+	return res;
 }
 
 static int
 dummyfs_unlink (const char* path)
 {
+	printf("Entering unlink for path %s\n", path);
+	int res = 0;
+	struct fuse_context* ctx = fuse_get_context();
+	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
+
+	char* parent_path[256];
+	char* name[256];
+	get_parent_path(path, parent_path, name);
+
+	struct fs_node* node = dummyfs_find_node(fs, path);
+
+	if (node != NULL) {
+		node->stat.st_nlink = 0;
+	}
+
 	return 0;
 }
 
@@ -253,19 +357,15 @@ dummyfs_utimens (const char* path, const struct timespec ts[2], struct fuse_file
 static int
 dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi)
 {
+	printf("Entering write for path %s\n", path);
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
-	if (strcmp(path,"/") == 0) {
-		printf("Write to root\n");
-		res = -ENOENT;
-	} else if (strcmp(path + 1,"matrix.out") == 0) {
-		printf("Writing to matrix.out\n");
-		struct fs_node* node = &fs->root->children[0];
-		inode ino = node->inode;
+
+	struct fs_node* node = dummyfs_find_node(fs, path);
+	if (node != NULL && node->stat.st_nlink > 0) {
 		// Write to target memory
-		memcpy(fs->contents[ino] + offset, buf, size);
-		printf("%s", fs->contents[ino]);
+		memcpy(fs->contents[node->inode] + offset, buf, size);
 		// Update fs tree
 		if (offset + size > node->stat.st_size) {
 			node->stat.st_size += size - (node->stat.st_size - offset);
@@ -275,8 +375,10 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 		clock_gettime(CLOCK_REALTIME, &ts);
 		node->stat.st_mtime = ts.tv_sec;
 		res = size;
+	} else if (node == NULL) {
+		res = -ENOENT;
 	} else {
-		printf("INVALID\n");
+		// invalid type
 		res = -ENOENT;
 	}
 
