@@ -56,7 +56,7 @@ Later on as we know all existing locks, we can check before write and read opera
 
 To handle links efficiently we added two additional fields in our Entry structure each containing a pointer.
 
-The field `slink` will only ever be filled if the this entry represents a soft or symbolic link. It contains the key of the other entry, namely its path to allow it being changed dynamically and be potentially dangling.
+The field `slink` will only ever be filled if this entry represents a soft or symbolic link. It contains the key of the other entry, namely its path to allow it being changed dynamically and be potentially dangling.
 
 In comparison, the field `hlink` represents a hard link to another filesystem entry, this field will simply hold the reference to this other entry. This adds a small overhead to the file, but should not have a significant impact on the overall performance as a simple pointer with no higher logic is used.
 In case of deletion request of the original file entry, we might want to transfer the ownership of the content and metadata to this hard link as to prevent the recreation of a file in position of the deleted file to overwrite still existing hard links to the former file content and permissions.
