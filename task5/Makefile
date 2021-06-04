@@ -9,8 +9,13 @@ metadata: LDLIBS += $(shell pkg-config --libs glib-2.0 gthread-2.0)
 metadata: metadata.c
 
 memoryfs: CFLAGS += $(shell pkg-config --cflags fuse3)
-memoryfs: LDLIBS += $(shell pkg-config --libs fuse3)
-memoryfs: memoryfs.c
+memoryfs: LDLIBS += $(shell pkg-config --libs fuse3) -lstdc++ -lm
+memoryfs: memoryfs.c swisstable/libswisstable.a
+
+swisstable/libswisstable.a:
+	git clone https://github.com/taviso/swisstable.git
+	cd swisstable && git clone https://github.com/abseil/abseil-cpp.git
+	cd swisstable && cmake . && make
 
 design:
 	@exec ./build.sh
@@ -18,4 +23,5 @@ design:
 clean:
 	$(RM) metadata
 	$(RM) memoryfs
-	rm design.pdf || true
+	$(RM) -r swisstable
+	$(RM) design.pdf || true

@@ -2,7 +2,6 @@
 #define FUSE_USE_VERSION 31
 
 #include <fuse.h>
-
 #include <dirent.h>
 #include <errno.h>
 #include <string.h>
@@ -15,6 +14,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
+#include "swisstable/swisstable.h"
 
 #define FIVE_MIB sizeof(char) * 5 * 1024 * 1024
 
@@ -25,6 +25,7 @@ struct dummyfs {
 	// For now this is not implemented
 	// inode* inodes;
 	inode cur_inode;
+	swisstablemap_t* entry_map;
 	struct fs_node* root;
 	char** contents;
 };
@@ -84,6 +85,7 @@ void dummyfs_init (struct dummyfs* fs) {
 	// Current maximum of 2^12 entries in the fs, for testing enough...
 	// fs->inodes = calloc(4096, sizeof(unsigned int));
 	fs->cur_inode = 0;
+	fs->entry_map = swisstable_map_create();
 	fs->contents = malloc(sizeof(char*) * 4096);
 
 	fs->root = malloc(sizeof(struct fs_node));
