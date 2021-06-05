@@ -41,21 +41,21 @@ struct fs_node {
 	struct stat stat;
 };
 
-inode dummyfs_inode_add(struct dummyfs* fs, const char* name) {
+inode* dummyfs_inode_add(struct dummyfs* fs, const char* name) {
 	inode* n_inode = malloc(sizeof(inode));
 	*n_inode = fs->cur_inode++;
 	char* key = malloc(strlen(name) + 1);
 	strcpy(key, name);
-	swisstable_map_insert(fs->inode_map, name, strlen(name), n_inode);
-	return *n_inode;
+	swisstable_map_insert(fs->inode_map, key, strlen(key), n_inode);
+	return n_inode;
 }
 
 inode* dummyfs_inode_search(struct dummyfs* fs, const char* name) {
 	return swisstable_map_search(fs->inode_map, name, strlen(name));
 }
 
-void dummyfs_entry_add(struct dummyfs* fs, inode* inode, struct fs_node* entry) {
-	swisstable_map_insert(fs->entry_map, inode, sizeof(inode), entry);
+void* dummyfs_entry_add(struct dummyfs* fs, inode* inode, struct fs_node* entry) {
+	return swisstable_map_insert(fs->entry_map, inode, sizeof(inode), entry);
 }
 
 struct fs_node* dummyfs_entry_search(struct dummyfs* fs, inode* inode) {
@@ -64,17 +64,18 @@ struct fs_node* dummyfs_entry_search(struct dummyfs* fs, inode* inode) {
 
 struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
 	// TODO: Add implementation to add file to the tree
-	(void) parent;
 	(void) fi;
 
 	inode* p_inode = dummyfs_inode_search(fs, parent);
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 
-	char path[strlen(name) + strlen(parent) + 2];
+	char path[strlen(name) + strlen(parent) + 1];
 	strcpy(path, parent);
-	strcat(path, "/");
+	if (strcmp(parent, "/") != 0) {
+		strcat(path, "/");
+	}
 	strcat(path, name);
-	inode new_inode = dummyfs_inode_add(fs, path);
+	inode* new_inode = dummyfs_inode_add(fs, path);
 	struct fs_node* new_entry = malloc(sizeof(struct fs_node));
 	// Init new fsnode
 	new_entry->name = strcpy(malloc(strlen(name) + 1), name);
@@ -103,7 +104,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 
 
 	// Add new entry to exisiting structures
-	dummyfs_entry_add(fs, &new_inode, new_entry);
+	dummyfs_entry_add(fs, new_inode, new_entry);
 	p_entry->children[p_entry->num_children] = new_entry;
 	p_entry->num_children += 1;
 
@@ -124,32 +125,36 @@ void dummy_add_directory(struct dummyfs* fs, const char* name, const char* paren
 	}
 }
 
-
 void dummyfs_init (struct dummyfs* fs) {
 	// Current maximum of 2^12 entries in the fs, for testing enough...
 	// fs->inodes = calloc(4096, sizeof(unsigned int));
 	fs->cur_inode = 0;
 	fs->entry_map = swisstable_map_create();
+	swisstable_map_reserve(fs->entry_map, 1024);
 	fs->inode_map = swisstable_map_create();
+	swisstable_map_reserve(fs->inode_map, 1024);
 	fs->total_bytes = 0;
 
-	inode new_inode = dummyfs_inode_add(fs, "/");
+	inode* new_inode = dummyfs_inode_add(fs, "/");
 	struct fs_node* root = malloc(sizeof(struct fs_node));
 	root->name = "/";
-	root->children = malloc(sizeof(struct fs_node) * 256);
+	root->children = malloc(sizeof(struct fs_node*) * 64);
 	root->num_children = 0;
-	root->inode = new_inode;
+	root->inode = *new_inode;
 	struct stat* meta = &root->stat;
 	meta->st_nlink = 2;
 	meta->st_mode = S_IFDIR | 0777;
-	meta->st_ino = new_inode;
+	meta->st_ino = *new_inode;
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
 	meta->st_atime = ts.tv_sec;
 	meta->st_mtime = ts.tv_sec;
 	meta->st_ctime = ts.tv_sec;
 
-	dummyfs_entry_add(fs, &new_inode, root);
+	printf("Entry inode %p added to map with %p\n", dummyfs_entry_add(fs, new_inode, root), new_inode);
+	// inode* test = dummyfs_inode_search(fs, "/");
+	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
+	// printf("Fetched again with %u this results in pointer %p\n", *test, dummyfs_entry_search(fs, test));
 
 	// Add Dummy File for now
 	dummyfs_add_file(fs, "matrix.out", "/", NULL, 1000, 1000);
@@ -267,6 +272,10 @@ dummyfs_getattr (const char* path, struct stat* stbuf, struct fuse_file_info* fi
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
 	inode* n_inode = dummyfs_inode_search(fs, path);
+	if (n_inode == NULL) {
+		res = -ENOENT;
+		return res;
+	}
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 	memset(stbuf, 0, sizeof(struct stat));
 
