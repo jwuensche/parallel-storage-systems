@@ -63,7 +63,6 @@ struct fs_node* dummyfs_entry_search(struct dummyfs* fs, inode* inode) {
 }
 
 struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
-	// TODO: Add implementation to add file to the tree
 	(void) fi;
 
 	inode* p_inode = dummyfs_inode_search(fs, parent);
@@ -111,18 +110,45 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	return new_entry;
 }
 
-void dummy_add_directory(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi) {
-	// TODO: Add impl for directories
-	(void) fs;
-	(void) name;
-	(void) parent;
+struct fs_node* dummy_add_directory(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
 	(void) fi;
+
+
+	char* path;
 
 	if (parent == NULL) {
 		// Create root dir
+		path = (char*) name;
 	} else {
 		// Create regular directory
+		char tmp[strlen(name) + strlen(parent) + 1];
+		strcpy(tmp, parent);
+		if (strcmp(parent, "/") != 0) {
+			strcat(tmp, "/");
+		}
+		strcat(tmp, name);
+		path = tmp;
 	}
+	inode* new_inode = dummyfs_inode_add(fs, path);
+	struct fs_node* dir = malloc(sizeof(struct fs_node));
+	dir->name = "/";
+	dir->children = malloc(sizeof(struct fs_node*) * 64);
+	dir->num_children = 0;
+	dir->inode = *new_inode;
+	struct stat* meta = &dir->stat;
+	meta->st_nlink = 2;
+	meta->st_mode = S_IFDIR | 0777;
+	meta->st_ino = *new_inode;
+	meta->st_uid = uid;
+	meta->st_gid = gid;
+	struct timespec ts;
+	clock_gettime(CLOCK_REALTIME, &ts);
+	meta->st_atime = ts.tv_sec;
+	meta->st_mtime = ts.tv_sec;
+	meta->st_ctime = ts.tv_sec;
+
+	dummyfs_entry_add(fs, new_inode, dir);
+	return dir;
 }
 
 void dummyfs_init (struct dummyfs* fs) {
@@ -135,26 +161,11 @@ void dummyfs_init (struct dummyfs* fs) {
 	swisstable_map_reserve(fs->inode_map, 1024);
 	fs->total_bytes = 0;
 
-	inode* new_inode = dummyfs_inode_add(fs, "/");
-	struct fs_node* root = malloc(sizeof(struct fs_node));
-	root->name = "/";
-	root->children = malloc(sizeof(struct fs_node*) * 64);
-	root->num_children = 0;
-	root->inode = *new_inode;
-	struct stat* meta = &root->stat;
-	meta->st_nlink = 2;
-	meta->st_mode = S_IFDIR | 0777;
-	meta->st_ino = *new_inode;
-	struct timespec ts;
-	clock_gettime(CLOCK_REALTIME, &ts);
-	meta->st_atime = ts.tv_sec;
-	meta->st_mtime = ts.tv_sec;
-	meta->st_ctime = ts.tv_sec;
-
-	printf("Entry inode %p added to map with %p\n", dummyfs_entry_add(fs, new_inode, root), new_inode);
 	// inode* test = dummyfs_inode_search(fs, "/");
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
 	// printf("Fetched again with %u this results in pointer %p\n", *test, dummyfs_entry_search(fs, test));
+	//
+	dummy_add_directory(fs, "/", NULL, NULL, 1000, 1000);
 
 	// Add Dummy File for now
 	dummyfs_add_file(fs, "matrix.out", "/", NULL, 1000, 1000);
