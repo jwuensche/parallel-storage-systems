@@ -15,50 +15,83 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include "swisstable/swisstable.h"
+#include <stdatomic.h>
 
-#define FIVE_MIB sizeof(char) * 5 * 1024 * 1024
+#define TEN_MIB sizeof(char) * 10 * 1024 * 1024
+#define ONE_KB sizeof(char) * 1 * 1024
 
 typedef unsigned int inode;
 
 struct dummyfs {
 	// We use this later as we need to remove files again and reassign inodes again
 	// For now this is not implemented
-	// inode* inodes;
 	inode cur_inode;
 	swisstablemap_t* entry_map;
-	struct fs_node* root;
-	char** contents;
+	swisstablemap_t* inode_map;
+	atomic_size_t total_bytes;
 };
 
 struct fs_node {
 	const char* name;
-	struct fs_node* children;
+	struct fs_node** children;
 	size_t num_children;
+	char* content;
+	size_t allocated_size;
 	inode inode;
 	struct stat stat;
 };
 
-void dummyfs_add_file(struct dummyfs* fs, const char* name, inode parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
+inode dummyfs_inode_add(struct dummyfs* fs, const char* name) {
+	inode* n_inode = malloc(sizeof(inode));
+	*n_inode = fs->cur_inode++;
+	char* key = malloc(strlen(name) + 1);
+	strcpy(key, name);
+	swisstable_map_insert(fs->inode_map, name, strlen(name), n_inode);
+	return *n_inode;
+}
+
+inode* dummyfs_inode_search(struct dummyfs* fs, const char* name) {
+	return swisstable_map_search(fs->inode_map, name, strlen(name));
+}
+
+void dummyfs_entry_add(struct dummyfs* fs, inode* inode, struct fs_node* entry) {
+	swisstable_map_insert(fs->entry_map, inode, sizeof(inode), entry);
+}
+
+struct fs_node* dummyfs_entry_search(struct dummyfs* fs, inode* inode) {
+	return swisstable_map_search(fs->entry_map, inode, sizeof(inode));
+}
+
+struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
 	// TODO: Add implementation to add file to the tree
 	(void) parent;
 	(void) fi;
-	fs->cur_inode += 1;
 
+	inode* p_inode = dummyfs_inode_search(fs, parent);
+	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
+
+	char path[strlen(name) + strlen(parent) + 2];
+	strcpy(path, parent);
+	strcat(path, "/");
+	strcat(path, name);
+	inode new_inode = dummyfs_inode_add(fs, path);
+	struct fs_node* new_entry = malloc(sizeof(struct fs_node));
 	// Init new fsnode
-	struct fs_node* c = &fs->root->children[fs->root->num_children];
-	char* bar = malloc(sizeof(char) * 64);
-	c->name = strcpy(bar, name);
-	c->num_children = 0;
-	c->inode = fs->cur_inode;
+	new_entry->name = strcpy(malloc(strlen(name) + 1), name);
+	new_entry->num_children = 0;
+	new_entry->children = NULL;
+	new_entry->content = malloc(ONE_KB);
+	new_entry->allocated_size = ONE_KB;
+	new_entry->inode = fs->cur_inode;
 
 	// Init metadata
-	struct stat* meta = &c->stat;
+	struct stat* meta = &new_entry->stat;
 	meta->st_ino = fs->cur_inode;
 	meta->st_uid = uid;
 	meta->st_gid = gid;
 	meta->st_size = 0;
 	meta->st_blocks = 1;
-	meta->st_blksize = FIVE_MIB;
+	meta->st_blksize = ONE_KB;
 	meta->st_dev = 1337;
 	meta->st_mode = S_IFREG;
 	struct timespec ts;
@@ -68,43 +101,59 @@ void dummyfs_add_file(struct dummyfs* fs, const char* name, inode parent, struct
 	meta->st_ctime = ts.tv_sec;
 	meta->st_nlink = 1;
 
-	fs->root->num_children += 1;
-	// Init content and fs
-	fs->contents[fs->cur_inode] = malloc(FIVE_MIB);
+
+	// Add new entry to exisiting structures
+	dummyfs_entry_add(fs, &new_inode, new_entry);
+	p_entry->children[p_entry->num_children] = new_entry;
+	p_entry->num_children += 1;
+
+	return new_entry;
 }
 
-void dummy_add_directory(struct dummyfs* fs, const char* name, inode parent, struct fuse_file_info* fi) {
+void dummy_add_directory(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi) {
 	// TODO: Add impl for directories
 	(void) fs;
 	(void) name;
 	(void) parent;
 	(void) fi;
+
+	if (parent == NULL) {
+		// Create root dir
+	} else {
+		// Create regular directory
+	}
 }
+
 
 void dummyfs_init (struct dummyfs* fs) {
 	// Current maximum of 2^12 entries in the fs, for testing enough...
 	// fs->inodes = calloc(4096, sizeof(unsigned int));
 	fs->cur_inode = 0;
 	fs->entry_map = swisstable_map_create();
-	fs->contents = malloc(sizeof(char*) * 4096);
+	fs->inode_map = swisstable_map_create();
+	fs->total_bytes = 0;
 
-	fs->root = malloc(sizeof(struct fs_node));
-	fs->root->name = "/";
-	fs->root->children = malloc(sizeof(struct fs_node) * 256);
-	fs->root->num_children = 0;
-	fs->root->inode = fs->cur_inode;
-	struct stat* meta = &fs->root->stat;
+	inode new_inode = dummyfs_inode_add(fs, "/");
+	struct fs_node* root = malloc(sizeof(struct fs_node));
+	root->name = "/";
+	root->children = malloc(sizeof(struct fs_node) * 256);
+	root->num_children = 0;
+	root->inode = new_inode;
+	struct stat* meta = &root->stat;
 	meta->st_nlink = 2;
 	meta->st_mode = S_IFDIR | 0777;
+	meta->st_ino = new_inode;
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
 	meta->st_atime = ts.tv_sec;
 	meta->st_mtime = ts.tv_sec;
 	meta->st_ctime = ts.tv_sec;
 
+	dummyfs_entry_add(fs, &new_inode, root);
+
 	// Add Dummy File for now
-	dummyfs_add_file(fs, "matrix.out", fs->cur_inode, NULL, 1000, 1000);
-	dummyfs_add_file(fs, "hello", fs->cur_inode, NULL, 1000, 1000);
+	dummyfs_add_file(fs, "matrix.out", "/", NULL, 1000, 1000);
+	dummyfs_add_file(fs, "hello", "/", NULL, 1000, 1000);
 }
 
 /*
@@ -127,28 +176,28 @@ void get_first_element(const char* source, char* target) {
 	}
 }
 
-struct fs_node* _dummyfs_find_node(struct dummyfs* fs, const char* path, struct fs_node* parent) {
-	struct fs_node* target = NULL;
-	char next_child[256] = {0};
-	get_first_element(path, next_child);
-	// //printf("path = %s\n", path);
-	// //printf("next_child = %s\n", next_child);
-	if (strcmp(next_child, "/") == 0 || strcmp(path, "") == 0) {
-		// //printf("Found %s\n", parent->name);
-		return parent;
-	}
-	for (size_t idx = 0; idx < parent->num_children; idx += 1) {
-		/// //printf("Checking %s\n", parent->children[idx].name);
-		if (strcmp(parent->children[idx].name,next_child) == 0) {
-			return _dummyfs_find_node(fs, path + strlen(next_child) + 1, &parent->children[idx]);
-		}
-	}
-	return target;
-}
-
-struct fs_node* dummyfs_find_node(struct dummyfs* fs, const char* path) {
-	return _dummyfs_find_node(fs, path, fs->root);
-}
+// struct fs_node* _dummyfs_find_node(struct dummyfs* fs, const char* path, struct fs_node* parent) {
+// 	struct fs_node* target = NULL;
+// 	char next_child[256] = {0};
+// 	get_first_element(path, next_child);
+// 	// //printf("path = %s\n", path);
+// 	// //printf("next_child = %s\n", next_child);
+// 	if (strcmp(next_child, "/") == 0 || strcmp(path, "") == 0) {
+// 		// //printf("Found %s\n", parent->name);
+// 		return parent;
+// 	}
+// 	for (size_t idx = 0; idx < parent->num_children; idx += 1) {
+// 		/// //printf("Checking %s\n", parent->children[idx].name);
+// 		if (strcmp(parent->children[idx].name,next_child) == 0) {
+// 			return _dummyfs_find_node(fs, path + strlen(next_child) + 1, &parent->children[idx]);
+// 		}
+// 	}
+// 	return target;
+// }
+//
+// struct fs_node* dummyfs_find_node(struct dummyfs* fs, const char* path) {
+// 	return _dummyfs_find_node(fs, path, fs->root);
+// }
 
 static int
 dummyfs_chmod (const char* path, mode_t mode, struct fuse_file_info* fi)
@@ -189,22 +238,21 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
-	if (dummyfs_find_node(fs, path) != NULL) {
+	if (dummyfs_inode_search(fs, path) != NULL) {
 		return -EEXIST;
 	}
 
-	char parent_path[256];
+	char parent_path[strlen(path)];
 	char name[256];
 	get_parent_path(path, parent_path, name);
-
-	struct fs_node* node = dummyfs_find_node(fs, parent_path);
-	if (node != NULL) {
-		// //printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
-		dummyfs_add_file(fs, name, node->inode, fi, ctx->uid, ctx->gid);
-		node->children[node->num_children - 1].stat.st_mode = mode;
-	} else {
+	inode* p_inode = dummyfs_inode_search(fs, parent_path);
+	if (p_inode == NULL) {
 		res = -ENOENT;
+		return res;
 	}
+	//printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
+	struct fs_node* new_entry = dummyfs_add_file(fs, name, parent_path, fi, ctx->uid, ctx->gid);
+	new_entry->stat.st_mode = mode;
 
 	return res;
 }
@@ -218,7 +266,8 @@ dummyfs_getattr (const char* path, struct stat* stbuf, struct fuse_file_info* fi
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
-	struct fs_node* node = dummyfs_find_node(fs, path);
+	inode* n_inode = dummyfs_inode_search(fs, path);
+	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 	memset(stbuf, 0, sizeof(struct stat));
 
 	if (node != NULL) {
@@ -263,12 +312,17 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	struct fs_node* node = dummyfs_find_node(fs, path);
+	inode* n_inode = dummyfs_inode_search(fs, path);
+	if (n_inode == NULL) {
+		res = -ENOENT;
+		return res;
+	}
+	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && node->stat.st_nlink > 0 && (node->stat.st_mode & S_IFREG) == S_IFREG) {
 		//printf("READING from %s\n", node->name);
 		// Write to target memory
-		memcpy(buf, fs->contents[node->inode] + offset, size);
+		memcpy(buf, node->content + offset, size);
 		// Update fs tree
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
@@ -297,15 +351,20 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	// Act from root
 	int res = 0;
 
-	struct fs_node* node = dummyfs_find_node(fs, path);
+	inode* n_inode = dummyfs_inode_search(fs, path);
+	if (n_inode == NULL) {
+		res = -ENOENT;
+		return res;
+	}
+	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && (node->stat.st_mode & S_IFDIR) == S_IFDIR) {
 		//printf("READDIR from %s\n", node->name);
 		filler(buf, ".", NULL, 0, 0);
 		filler(buf, "..", NULL, 0, 0);
 		for (size_t idx = 0; idx < node->num_children; idx += 1) {
-			if (node->children[idx].stat.st_nlink > 0) {
-				filler(buf, node->children[idx].name, NULL, 0, 0);
+			if (node->children[idx]->stat.st_nlink > 0) {
+				filler(buf, node->children[idx]->name, NULL, 0, 0);
 			}
 		}
 	} else if (node == NULL) {
@@ -341,7 +400,12 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	struct fs_node* node = dummyfs_find_node(fs, path);
+	inode* n_inode = dummyfs_inode_search(fs, path);
+	if (n_inode == NULL) {
+		res = -ENOENT;
+		return res;
+	}
+	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && (node->stat.st_mode & S_IFREG) == S_IFREG) {
 		if (node->stat.st_size < size) {
@@ -351,7 +415,7 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 		//printf("Setting size to %ld", node->stat.st_size);
 	} else if (node != NULL) {
 		res = -EINVAL;
-	}else {
+	} else {
 		res = -ENOENT;
 	}
 
@@ -370,7 +434,12 @@ dummyfs_unlink (const char* path)
 	char name[256];
 	get_parent_path(path, parent_path, name);
 
-	struct fs_node* node = dummyfs_find_node(fs, path);
+	inode* n_inode = dummyfs_inode_search(fs, path);
+	if (n_inode == NULL) {
+		res = -ENOENT;
+		return res;
+	}
+	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL) {
 		node->stat.st_nlink = 0;
@@ -397,10 +466,11 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	struct fs_node* node = dummyfs_find_node(fs, path);
+	inode* inode = dummyfs_inode_search(fs, path);
+	struct fs_node* node = dummyfs_entry_search(fs, inode);
 	if (node != NULL && node->stat.st_nlink > 0) {
 		// Write to target memory
-		memcpy(fs->contents[node->inode] + offset, buf, size);
+		memcpy(node->content + offset, buf, size);
 		// Update fs tree
 		if ((off_t)(offset + size) > node->stat.st_size) {
 			node->stat.st_size += size - (node->stat.st_size - offset);
