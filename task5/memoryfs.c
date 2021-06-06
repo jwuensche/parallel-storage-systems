@@ -531,13 +531,26 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 	inode* inode = dummyfs_inode_search(fs, path);
 	struct fs_node* node = dummyfs_entry_search(fs, inode);
 	if (node != NULL && node->stat.st_nlink > 0) {
-		// Write to target memory
-		memcpy(node->content + offset, buf, size);
 		// Update fs tree
 		if ((off_t)(offset + size) > node->stat.st_size) {
-			node->stat.st_size += size - (node->stat.st_size - offset);
-			//printf("Increasing size to %ld\n", node->stat.st_size);
+			size_t n_size = node->stat.st_size + size - (node->stat.st_size - offset);
+			printf("Increasing size to %ld\n", n_size);
+			if (n_size > TEN_MIB) {
+				res = -ENOSPC;
+				return res;
+			}
+			if (n_size > node->allocated_size) {
+				void* n_content = realloc(node->content, n_size);
+				if (n_content == NULL) {
+					res = -ENOMEM;
+					return res;
+				}
+				node->content = n_content;
+			}
+			node->stat.st_size = n_size;
 		}
+		// Write to target memory
+		memcpy(node->content + offset, buf, size);
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
 		node->stat.st_mtime = ts.tv_sec;
