@@ -470,9 +470,20 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && (node->stat.st_mode & S_IFREG) == S_IFREG) {
-		if (node->stat.st_size < size) {
-			return -1;
+		if ((long unsigned int) size > TEN_MIB) {
+			res = -ENOSPC;
+			return res;
 		}
+		off_t allocate_size = size;
+		if ((long unsigned int) size < ONE_KB) {
+			allocate_size = ONE_KB;
+		}
+		void* n_content = realloc(node->content, allocate_size);
+		if (n_content == NULL) {
+			res = -ENOMEM;
+			return res;
+		}
+		node->content = n_content;
 		node->stat.st_size = size;
 		//printf("Setting size to %ld", node->stat.st_size);
 	} else if (node != NULL) {
@@ -534,7 +545,7 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 		// Update fs tree
 		if ((off_t)(offset + size) > node->stat.st_size) {
 			size_t n_size = node->stat.st_size + size - (node->stat.st_size - offset);
-			printf("Increasing size to %ld\n", n_size);
+			//printf("Increasing size to %ld\n", n_size);
 			if (n_size > TEN_MIB) {
 				res = -ENOSPC;
 				return res;
