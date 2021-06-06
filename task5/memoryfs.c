@@ -343,7 +343,7 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 	if ((p_entry->stat.st_mode & S_IFDIR) == S_IFDIR) {
 		struct fs_node* d_node = dummyfs_add_directory(fs, d_name, p_path, NULL, ctx->uid, ctx->gid);
-		//d_node->stat.st_mode = mode;
+		d_node->stat.st_mode = mode | S_IFDIR;
 		p_entry->children[p_entry->num_children++] = d_node;
 	} else {
 		res = -EINVAL;
