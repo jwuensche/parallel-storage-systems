@@ -3,9 +3,7 @@ Please put an X in the appropriate column below.
 
 Time required:
 Difficult:       [ ] too easy  [X] spot-on        [ ] too hard
-Instructive:     [ ] a little  [X] okay           [ ] a lot
+Instructive:     [ ] a little  [ ] okay           [X] a lot
 Understandable:  [ ] unclear   [ ] a bit unclear  [X] clear
 
-Comments:
-
-Early Feedback on potential pitfalls for your design is very cool, would like this for more longer tasks in uni courses.
+Comments
