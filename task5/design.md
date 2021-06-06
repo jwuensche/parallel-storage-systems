@@ -23,7 +23,7 @@ Due to the implementation as a memory-only fs writing and reading should be done
 
 Here we discuss some details and potential stepping stones regarding the implementation. A rough overview can be had in Figure 1. Which shows the central hashtable and some basics characteristics.
 
-![Overview of the planned implementation](overview.svg)
+![Overview of the planned implementation](overview.svg){ width=80% }
 
 1.2.1 Entry and Tree Structures
 -------------------------------
@@ -43,6 +43,33 @@ We think this decision is worthwhile, as the situations where these semantic err
 
 In the end the freeing of all entries and keys can be easily done with provided functions for a traversal over all known keys.
 
+---
+
+*Addendum*: A new hash map has been introduced which holds the allocated inodes
+of the entry hash map. This allows for an easy creation of soft links and
+simpler migration of hard-links. This new hashmap seen in Figure 1 in the lower
+half is also swisstable which takes the path to an entry as it's key and returns
+a pointer to the underlying inode.
+
+---
+
+Below the structure used and implemented can be seen (starting `memoryfs.c:36`). Not mentioned members have not been completed yet.
+
+```C
+struct fs_node {
+	// A poor mans spinlock, this is better substituted
+    // with another explicit structure but time is running low...
+	atomic_flag busy;
+	const char* name;
+	GList* children;
+	size_t num_children;
+	char* content;
+	size_t allocated_size;
+	inode inode;
+	struct stat stat;
+};
+```
+
 1.2.2 Locking
 -------------
 
@@ -50,6 +77,19 @@ Locks used in our implementation represent at how they are defined in `man 2 fcn
 Once a file is locked and we receive the according `flock` struct, we add this to our knowledge of the file in our filesystem entry.
 
 Later on as we know all existing locks, we can check before write and read operations are performed which locks are currently active for which `pid` and react accordingly. Multiple locks on different areas of the given file are also possible with this structure as we can hold multiple locks at the same time, which are associated to the same file.
+
+---
+
+*Addendum*: This is not implemented yet, as can be seen by it's absence in the
+given implemented `fs_node` struct. Locking has been implemented to allow for
+parallel access on the filesystem on shared directories or files via cheap
+atomic spinlocks (although file locking is quite primitive as of now as files
+are completely locked down on operations e.g. write even if the desired ranges
+are non-overlapping). These also have to be reworked as the usage of spinlocks
+based on `atomic_flag` are suboptimal (see link: [torvalds rage
+lol](https://www.realworldtech.com/forum/?threadid=189711&curpostid=189723)).
+
+---
 
 1.2.3 Links
 -----------
@@ -69,4 +109,14 @@ From it we can pick for instance the first always as replacement. The copy opera
 
 The restrictions taken in the assignment, namely the 4 GiB upper size limit for the whole filesystem and 10 MiB for individual files, are kept in place to some invariants included in the write operations and the global filesystem state. In the global state a counter `total_bytes` exists which tracks the amount of allocated bytes in the complete structure. This includes file descriptors, file content, various managing structures such as lists and so on.
 The file barrier is held in place by allowing a maximum of 10 MiB for file allocations at all time.
+
+---
+
+*Addendum 1*:
+We have introduced a small wrapper around `malloc` and `realloc` which tracks most allocations.
+
+*Addendum 2*:
+The overall performance can be greatly enhanced further by using the `fuse_file_info` data and storing the filehandle inode within, this would save us about a quarter of lookups in the hashmap and in the worst-case.
+
+---
 
