@@ -37,7 +37,7 @@ struct fs_node {
 	// A poor mans spinlock, this is better substituted with another explicit structure but time is running low...
 	atomic_flag busy;
 	const char* name;
-	struct fs_node** children;
+	GList* children;
 	size_t num_children;
 	char* content;
 	size_t allocated_size;
@@ -139,7 +139,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 
 	// Add new entry to exisiting structures
 	dummyfs_entry_add(fs, new_inode, new_entry);
-	p_entry->children[p_entry->num_children] = new_entry;
+	p_entry->children = g_list_append(p_entry->children, new_entry);
 	p_entry->num_children += 1;
 
 	return new_entry;
@@ -167,7 +167,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	atomic_flag flag = ATOMIC_FLAG_INIT;
 	dir->busy = flag;
 	dir->name = strcpy(dummyfs_allocate(fs, strlen(name) + 1), name);
-	dir->children = dummyfs_allocate(fs, (sizeof(struct fs_node*) * 1000000));
+	dir->children = NULL;
 	dir->num_children = 0;
 	dir->inode = *new_inode;
 	struct stat* meta = &dir->stat;
@@ -187,6 +187,13 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	meta->st_ctime = ts.tv_sec;
 
 	dummyfs_entry_add(fs, new_inode, dir);
+
+	if (parent != NULL) {
+		inode* p_inode = dummyfs_inode_search(fs, parent);
+		struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
+		p_entry->children = g_list_append(p_entry->children, dir);
+	}
+
 	return dir;
 }
 
@@ -386,7 +393,6 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 		while (atomic_flag_test_and_set(&p_entry->busy)) {}
 		struct fs_node* d_node = dummyfs_add_directory(fs, d_name, p_path, NULL, ctx->uid, ctx->gid);
 		d_node->stat.st_mode = mode | S_IFDIR;
-		p_entry->children[p_entry->num_children++] = d_node;
 		atomic_flag_clear(&p_entry->busy);
 	} else {
 		res = -EINVAL;
@@ -483,10 +489,13 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	if (node != NULL && (node->stat.st_mode & S_IFDIR) == S_IFDIR) {
 		filler(buf, ".", NULL, 0, 0);
 		filler(buf, "..", NULL, 0, 0);
-		for (size_t idx = 0; idx < node->num_children; idx += 1) {
-			if (node->children[idx]->stat.st_nlink > 0) {
-				filler(buf, node->children[idx]->name, NULL, 0, 0);
+		GList* cur = node->children;
+		while (cur!=NULL) {
+			struct fs_node* child = (struct fs_node*) cur->data;
+			if (child->stat.st_nlink > 0) {
+				filler(buf,child->name, NULL, 0, 0);
 			}
+			cur = cur->next;
 		}
 	} else if (node == NULL) {
 		res = -ENOENT;
