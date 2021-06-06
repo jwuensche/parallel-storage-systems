@@ -1,3 +1,4 @@
+#include <asm-generic/errno-base.h>
 #define _POSIX_C_SOURCE 200809L
 #define FUSE_USE_VERSION 31
 
@@ -46,11 +47,13 @@ inode* dummyfs_inode_add(struct dummyfs* fs, const char* name) {
 	*n_inode = fs->cur_inode++;
 	char* key = malloc(strlen(name) + 1);
 	strcpy(key, name);
+	// printf("Adding %s with length %lu\n", key, strlen(key));
 	swisstable_map_insert(fs->inode_map, key, strlen(key), n_inode);
 	return n_inode;
 }
 
 inode* dummyfs_inode_search(struct dummyfs* fs, const char* name) {
+	// printf("Searching %s with length %lu\n", name, strlen(name));
 	return swisstable_map_search(fs->inode_map, name, strlen(name));
 }
 
@@ -110,15 +113,13 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	return new_entry;
 }
 
-struct fs_node* dummy_add_directory(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
+struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
 	(void) fi;
 
-
-	char* path;
-
+	inode* new_inode;
 	if (parent == NULL) {
 		// Create root dir
-		path = (char*) name;
+		new_inode = dummyfs_inode_add(fs, name);
 	} else {
 		// Create regular directory
 		char tmp[strlen(name) + strlen(parent) + 1];
@@ -127,20 +128,23 @@ struct fs_node* dummy_add_directory(struct dummyfs* fs, const char* name, const 
 			strcat(tmp, "/");
 		}
 		strcat(tmp, name);
-		path = tmp;
+		new_inode = dummyfs_inode_add(fs, tmp);
 	}
-	inode* new_inode = dummyfs_inode_add(fs, path);
 	struct fs_node* dir = malloc(sizeof(struct fs_node));
-	dir->name = "/";
+	dir->name = strcpy(malloc(strlen(name) + 1), name);
 	dir->children = malloc(sizeof(struct fs_node*) * 64);
 	dir->num_children = 0;
 	dir->inode = *new_inode;
 	struct stat* meta = &dir->stat;
-	meta->st_nlink = 2;
-	meta->st_mode = S_IFDIR | 0777;
 	meta->st_ino = *new_inode;
 	meta->st_uid = uid;
 	meta->st_gid = gid;
+	meta->st_nlink = 2;
+	meta->st_mode = S_IFDIR | 0755;
+	meta->st_blocks = 1;
+	meta->st_blksize = ONE_KB;
+	meta->st_dev = 1337;
+	meta->st_size = sizeof(inode);
 	struct timespec ts;
 	clock_gettime(CLOCK_REALTIME, &ts);
 	meta->st_atime = ts.tv_sec;
@@ -165,7 +169,7 @@ void dummyfs_init (struct dummyfs* fs) {
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
 	// printf("Fetched again with %u this results in pointer %p\n", *test, dummyfs_entry_search(fs, test));
 	//
-	dummy_add_directory(fs, "/", NULL, NULL, 1000, 1000);
+	dummyfs_add_directory(fs, "/", NULL, NULL, 1000, 1000);
 
 	// Add Dummy File for now
 	dummyfs_add_file(fs, "matrix.out", "/", NULL, 1000, 1000);
@@ -242,7 +246,13 @@ void get_parent_path(const char* path, char* target, char* name) {
 			break;
 		}
 	}
-	strncpy(target, path, last);
+	if (last == 1) {
+		strncpy(target, path, 1);
+		target[1] = '\0';
+	} else {
+		strncpy(target, path, last - 1);
+		target[last-1] = '\0';
+	}
 	strcpy(name, path + last);
 }
 
@@ -261,12 +271,12 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	char parent_path[strlen(path)];
 	char name[256];
 	get_parent_path(path, parent_path, name);
+	printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
 	inode* p_inode = dummyfs_inode_search(fs, parent_path);
 	if (p_inode == NULL) {
 		res = -ENOENT;
 		return res;
 	}
-	//printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
 	struct fs_node* new_entry = dummyfs_add_file(fs, name, parent_path, fi, ctx->uid, ctx->gid);
 	new_entry->stat.st_mode = mode;
 
@@ -291,7 +301,7 @@ dummyfs_getattr (const char* path, struct stat* stbuf, struct fuse_file_info* fi
 	memset(stbuf, 0, sizeof(struct stat));
 
 	if (node != NULL) {
-		//printf("GETATTR from %s\n", node->name);
+		// printf("GETATTR from %s\n", node->name);
 		// Write to target memory
 		*stbuf = node->stat;
 	} else {
@@ -312,7 +322,40 @@ static int
 dummyfs_mkdir(const char* path, mode_t mode) {
 	(void) path;
 	(void) mode;
-	return 0;
+	struct fuse_context* ctx = fuse_get_context();
+	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
+	int res = 0;
+
+	if (dummyfs_inode_search(fs, path) != NULL) {
+		res = -EEXIST;
+		return res;
+	}
+	char p_path[strlen(path)];
+	char d_name[strlen(path)];
+	get_parent_path(path, p_path, d_name);
+	inode* p_inode = dummyfs_inode_search(fs, p_path);
+	printf("Looking up parent \"%s\" with %lu\n", p_path, strlen(p_path));
+	if (p_inode == NULL) {
+		res = -ENOTDIR;
+		return res;
+	}
+	printf("Trying to add...\n");
+	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
+	if ((p_entry->stat.st_mode & S_IFDIR) == S_IFDIR) {
+		struct fs_node* d_node = dummyfs_add_directory(fs, d_name, p_path, NULL, ctx->uid, ctx->gid);
+		//d_node->stat.st_mode = mode;
+		p_entry->children[p_entry->num_children++] = d_node;
+	} else {
+		res = -EINVAL;
+	}
+
+	// if (dummyfs_inode_search(fs, path) == NULL) {
+	// 	printf("Tried to add %s with length %lu but it was not there\n", path, strlen(path));
+	// 	exit(69);
+	// }
+
+	printf("Successfully added %s\n", path);
+	return res;
 }
 
 static int
@@ -379,7 +422,6 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && (node->stat.st_mode & S_IFDIR) == S_IFDIR) {
-		//printf("READDIR from %s\n", node->name);
 		filler(buf, ".", NULL, 0, 0);
 		filler(buf, "..", NULL, 0, 0);
 		for (size_t idx = 0; idx < node->num_children; idx += 1) {
@@ -533,6 +575,6 @@ int main (int argc, char* argv[])
 	struct dummyfs dfs;
 	dummyfs_init(&dfs);
 
-	//printf("Initialized!\n");
+	printf("Initialized!\n");
 	return fuse_main(argc, argv, &dummyfs_oper, &dfs);
 }
