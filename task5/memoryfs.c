@@ -1,4 +1,5 @@
 #include <asm-generic/errno-base.h>
+#include <stddef.h>
 #define _POSIX_C_SOURCE 200809L
 #define FUSE_USE_VERSION 31
 
@@ -17,9 +18,11 @@
 #include <fcntl.h>
 #include "swisstable/swisstable.h"
 #include <stdatomic.h>
+#include <gmodule.h>
 
 #define TEN_MIB sizeof(char) * 10 * 1024 * 1024
 #define ONE_KB sizeof(char) * 1 * 1024
+#define FOUR_GB sizeof(char) * 4 * 1024 * 1024 * 1024
 
 typedef unsigned int inode;
 
@@ -42,10 +45,37 @@ struct fs_node {
 	struct stat stat;
 };
 
+void* dummyfs_allocate(struct dummyfs* fs, size_t bytes) {
+	if (fs->total_bytes + bytes > FOUR_GB) {
+		return NULL;
+	}
+	void* ptr = malloc(bytes);
+	if (ptr != NULL) {
+		fs->total_bytes += bytes;
+	}
+	return ptr;
+}
+
+void* dummyfs_reallocate(struct dummyfs*fs, void* old, size_t bytes, size_t current_bytes) {
+	if (current_bytes < bytes && FOUR_GB < fs->total_bytes + (bytes - current_bytes)) {
+		return NULL;
+	}
+	void* ptr = realloc(old, bytes);
+	if (ptr != NULL) {
+		// I don't wanna cast around
+		if (current_bytes > bytes) {
+			fs->total_bytes -= (current_bytes - bytes);
+		} else {
+			fs->total_bytes += (bytes - current_bytes);
+		}
+	}
+	return ptr;
+}
+
 inode* dummyfs_inode_add(struct dummyfs* fs, const char* name) {
-	inode* n_inode = malloc(sizeof(inode));
+	inode* n_inode = dummyfs_allocate(fs, (sizeof(inode)));
 	*n_inode = fs->cur_inode++;
-	char* key = malloc(strlen(name) + 1);
+	char* key = dummyfs_allocate(fs, (strlen(name) + 1));
 	strcpy(key, name);
 	// printf("Adding %s with length %lu\n", key, strlen(key));
 	swisstable_map_insert(fs->inode_map, key, strlen(key), n_inode);
@@ -78,12 +108,12 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	}
 	strcat(path, name);
 	inode* new_inode = dummyfs_inode_add(fs, path);
-	struct fs_node* new_entry = malloc(sizeof(struct fs_node));
+	struct fs_node* new_entry = dummyfs_allocate(fs, (sizeof(struct fs_node)));
 	// Init new fsnode
-	new_entry->name = strcpy(malloc(strlen(name) + 1), name);
+	new_entry->name = strcpy(dummyfs_allocate(fs, (strlen(name) + 1)), name);
 	new_entry->num_children = 0;
 	new_entry->children = NULL;
-	new_entry->content = malloc(ONE_KB);
+	new_entry->content = dummyfs_allocate(fs, (ONE_KB));
 	new_entry->allocated_size = ONE_KB;
 	new_entry->inode = fs->cur_inode;
 
@@ -130,9 +160,9 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 		strcat(tmp, name);
 		new_inode = dummyfs_inode_add(fs, tmp);
 	}
-	struct fs_node* dir = malloc(sizeof(struct fs_node));
-	dir->name = strcpy(malloc(strlen(name) + 1), name);
-	dir->children = malloc(sizeof(struct fs_node*) * 64);
+	struct fs_node* dir = dummyfs_allocate(fs, (sizeof(struct fs_node)));
+	dir->name = strcpy(dummyfs_allocate(fs, strlen(name) + 1), name);
+	dir->children = dummyfs_allocate(fs, (sizeof(struct fs_node*) * 1000000));
 	dir->num_children = 0;
 	dir->inode = *new_inode;
 	struct stat* meta = &dir->stat;
@@ -159,11 +189,15 @@ void dummyfs_init (struct dummyfs* fs) {
 	// Current maximum of 2^12 entries in the fs, for testing enough...
 	// fs->inodes = calloc(4096, sizeof(unsigned int));
 	fs->cur_inode = 0;
+	fs->total_bytes = 0;
 	fs->entry_map = swisstable_map_create();
 	swisstable_map_reserve(fs->entry_map, 1024);
+	fs->total_bytes += 1024 * sizeof(char*);
+	fs->total_bytes += 1024 * sizeof(inode*);
 	fs->inode_map = swisstable_map_create();
 	swisstable_map_reserve(fs->inode_map, 1024);
-	fs->total_bytes = 0;
+	fs->total_bytes += 1024 * sizeof(char*);
+	fs->total_bytes += 1024 * sizeof(inode*);
 
 	// inode* test = dummyfs_inode_search(fs, "/");
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
@@ -271,7 +305,7 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	char parent_path[strlen(path)];
 	char name[strlen(path)];
 	get_parent_path(path, parent_path, name);
-	printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
+	//printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
 	inode* p_inode = dummyfs_inode_search(fs, parent_path);
 	if (p_inode == NULL) {
 		res = -ENOENT;
@@ -334,12 +368,11 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 	char d_name[strlen(path)];
 	get_parent_path(path, p_path, d_name);
 	inode* p_inode = dummyfs_inode_search(fs, p_path);
-	printf("Looking up parent \"%s\" with %lu\n", p_path, strlen(p_path));
+	// printf("Looking up parent \"%s\" with %lu\n", p_path, strlen(p_path));
 	if (p_inode == NULL) {
 		res = -ENOTDIR;
 		return res;
 	}
-	printf("Trying to add...\n");
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 	if ((p_entry->stat.st_mode & S_IFDIR) == S_IFDIR) {
 		struct fs_node* d_node = dummyfs_add_directory(fs, d_name, p_path, NULL, ctx->uid, ctx->gid);
@@ -361,8 +394,16 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 static int
 dummyfs_open (const char* path, struct fuse_file_info* fi)
 {
-	(void) path;
-	(void) fi;
+	(void)fi;
+	struct fuse_context* ctx = fuse_get_context();
+	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
+	int res = 0;
+
+	inode* n_inode = dummyfs_inode_search(fs, path);
+	if (n_inode == NULL) {
+		res = -ENOENT;
+		return res;
+	}
 	return 0;
 }
 
@@ -385,7 +426,14 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 	if (node != NULL && node->stat.st_nlink > 0 && (node->stat.st_mode & S_IFREG) == S_IFREG) {
 		//printf("READING from %s\n", node->name);
 		// Write to target memory
-		memcpy(buf, node->content + offset, size);
+		// printf("Accessing %zu bytes at %p with offset %ld .\n", size, node->content, offset);
+		// printf("Reported size is %ld and allocated %zu\n", node->stat.st_size, node->allocated_size);
+		if (offset + size > node->stat.st_size) {
+			memcpy(buf, node->content + offset, node->stat.st_size - offset);
+		} else {
+			memcpy(buf, node->content + offset, size);
+		}
+		// printf("Accessed content.\n");
 		// Update fs tree
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
@@ -478,12 +526,14 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 		if ((long unsigned int) size < ONE_KB) {
 			allocate_size = ONE_KB;
 		}
-		void* n_content = realloc(node->content, allocate_size);
+
+		void* n_content = dummyfs_reallocate(fs, node->content, allocate_size, node->allocated_size);
 		if (n_content == NULL) {
 			res = -ENOMEM;
 			return res;
 		}
 		node->content = n_content;
+		node->allocated_size = allocate_size;
 		node->stat.st_size = size;
 		//printf("Setting size to %ld", node->stat.st_size);
 	} else if (node != NULL) {
@@ -551,13 +601,14 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 				return res;
 			}
 			if (n_size > node->allocated_size) {
-				void* n_content = realloc(node->content, n_size);
+				void* n_content = dummyfs_reallocate(fs, node->content, n_size, node->allocated_size);
 				if (n_content == NULL) {
 					res = -ENOMEM;
 					return res;
 				}
 				node->content = n_content;
 			}
+			node->allocated_size = n_size;
 			node->stat.st_size = n_size;
 		}
 		// Write to target memory

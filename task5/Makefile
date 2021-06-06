@@ -8,8 +8,8 @@ metadata: CFLAGS += $(shell pkg-config --cflags glib-2.0 gthread-2.0)
 metadata: LDLIBS += $(shell pkg-config --libs glib-2.0 gthread-2.0)
 metadata: metadata.c
 
-memoryfs: CFLAGS += $(shell pkg-config --cflags fuse3)
-memoryfs: LDLIBS += $(shell pkg-config --libs fuse3) -lstdc++ -lm
+memoryfs: CFLAGS += $(shell pkg-config --cflags fuse3 glib-2.0)
+memoryfs: LDLIBS += $(shell pkg-config --libs fuse3 glib-2.0) -lstdc++ -lm
 memoryfs: memoryfs.c swisstable/libswisstable.a
 
 swisstable/libswisstable.a:

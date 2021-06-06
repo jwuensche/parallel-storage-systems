@@ -40,3 +40,6 @@ truncate --size 5120 mnt/here
 
 echo "truncate --size 50120 mnt/here"
 truncate --size 50120 mnt/here
+
+echo "cat mnt/here > /dev/null"
+cat mnt/here > /dev/null
