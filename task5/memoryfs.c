@@ -269,7 +269,7 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	}
 
 	char parent_path[strlen(path)];
-	char name[256];
+	char name[strlen(path)];
 	get_parent_path(path, parent_path, name);
 	printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
 	inode* p_inode = dummyfs_inode_search(fs, parent_path);
@@ -492,8 +492,8 @@ dummyfs_unlink (const char* path)
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
-	char parent_path[256];
-	char name[256];
+	char parent_path[strlen(path)];
+	char name[strlen(path)];
 	get_parent_path(path, parent_path, name);
 
 	inode* n_inode = dummyfs_inode_search(fs, path);
