@@ -110,7 +110,8 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	inode* new_inode = dummyfs_inode_add(fs, path);
 	struct fs_node* new_entry = dummyfs_allocate(fs, (sizeof(struct fs_node)));
 	// Init new fsnode
-	atomic_flag_clear(&new_entry->busy);
+	atomic_flag flag = ATOMIC_FLAG_INIT;
+	new_entry->busy = flag;
 	new_entry->name = strcpy(dummyfs_allocate(fs, (strlen(name) + 1)), name);
 	new_entry->num_children = 0;
 	new_entry->children = NULL;
@@ -162,7 +163,9 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 		new_inode = dummyfs_inode_add(fs, tmp);
 	}
 	struct fs_node* dir = dummyfs_allocate(fs, (sizeof(struct fs_node)));
-	atomic_flag_clear(&dir->busy);
+
+	atomic_flag flag = ATOMIC_FLAG_INIT;
+	dir->busy = flag;
 	dir->name = strcpy(dummyfs_allocate(fs, strlen(name) + 1), name);
 	dir->children = dummyfs_allocate(fs, (sizeof(struct fs_node*) * 1000000));
 	dir->num_children = 0;
