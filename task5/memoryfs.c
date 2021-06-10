@@ -1,6 +1,7 @@
 #include <asm-generic/errno-base.h>
 #include <stddef.h>
 #define _POSIX_C_SOURCE 200809L
+#define _GNU_SOURCE
 #define FUSE_USE_VERSION 31
 
 #include <fuse.h>
@@ -36,7 +37,7 @@ struct dummyfs {
 struct fs_node {
 	// A poor mans spinlock, this is better substituted with another explicit structure but time is running low...
 	atomic_flag busy;
-	const char* name;
+	char* name;
 	GList* children;
 	size_t num_children;
 	char* content;
@@ -80,6 +81,13 @@ inode* dummyfs_inode_add(struct dummyfs* fs, const char* name) {
 	// printf("Adding %s with length %lu\n", key, strlen(key));
 	swisstable_map_insert(fs->inode_map, key, strlen(key), n_inode);
 	return n_inode;
+}
+
+inode* dummyfs_inode_add_explicit(struct dummyfs* fs, const char* name, inode* ino) {
+	char* key = dummyfs_allocate(fs, (strlen(name) + 1));
+	strcpy(key, name);
+	swisstable_map_insert(fs->inode_map, key, strlen(key), ino);
+	return ino;
 }
 
 inode* dummyfs_inode_search(struct dummyfs* fs, const char* name) {
@@ -198,8 +206,6 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 }
 
 void dummyfs_init (struct dummyfs* fs) {
-	// Current maximum of 2^12 entries in the fs, for testing enough...
-	// fs->inodes = calloc(4096, sizeof(unsigned int));
 	fs->cur_inode = 0;
 	fs->total_bytes = 0;
 	fs->entry_map = swisstable_map_create();
@@ -209,17 +215,13 @@ void dummyfs_init (struct dummyfs* fs) {
 	fs->inode_map = swisstable_map_create();
 	swisstable_map_reserve(fs->inode_map, 1024);
 	fs->total_bytes += 1024 * sizeof(char*);
-	fs->total_bytes += 1024 * sizeof(inode*);
+	fs->total_bytes += 1024 * sizeof(struct fs_node*);
 
 	// inode* test = dummyfs_inode_search(fs, "/");
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
 	// printf("Fetched again with %u this results in pointer %p\n", *test, dummyfs_entry_search(fs, test));
 	//
 	dummyfs_add_directory(fs, "/", NULL, NULL, 1000, 1000);
-
-	// Add Dummy File for now
-	dummyfs_add_file(fs, "matrix.out", "/", NULL, 1000, 1000);
-	dummyfs_add_file(fs, "hello", "/", NULL, 1000, 1000);
 }
 
 /*
@@ -465,6 +467,84 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 	return res;
 }
 
+void dummyfs_rename_subdirs(struct dummyfs* fs, struct fs_node* o_entry, const char* old, const char* new) {
+	if ((o_entry->stat.st_mode & S_IFDIR) == S_IFDIR && o_entry->children != NULL) {
+		GList* elem;
+		for (elem = o_entry->children; elem != NULL; elem = elem->next) {
+			struct fs_node* child = elem->data;
+			char oc_path[strlen(old) + strlen(child->name) + 1];
+			strcpy(oc_path, old);
+			strcat(oc_path, "/");
+			strcat(oc_path, child->name);
+			char nc_path[strlen(new) + strlen(child->name) + 1];
+			strcpy(nc_path, new);
+			strcat(nc_path, "/");
+			strcat(nc_path, child->name);
+			inode* c_inode = dummyfs_inode_search(fs, oc_path);
+			swisstable_map_erase(fs->inode_map, oc_path, strlen(oc_path));
+			dummyfs_inode_add_explicit(fs, nc_path, c_inode);
+			dummyfs_rename_subdirs(fs, child, oc_path, nc_path);
+		}
+	}
+}
+
+static int
+dummyfs_rename (const char* old, const char* new, unsigned int flags) {
+	(void)new;
+	struct fuse_context* ctx = fuse_get_context();
+	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
+	int res = 0;
+
+	inode* o_inode = dummyfs_inode_search(fs, old);
+	inode* n_inode = dummyfs_inode_search(fs, new);
+
+	if ((flags & RENAME_EXCHANGE ) == RENAME_EXCHANGE) {
+		if (o_inode != NULL && n_inode != NULL) {
+			struct fs_node* o_entry = dummyfs_entry_search(fs, o_inode);
+			struct fs_node* n_entry = dummyfs_entry_search(fs, n_inode);
+			struct fs_node swap = *o_entry;
+			*o_entry = *n_entry;
+			*n_entry = swap;
+			return res;
+		}
+		res = -EINVAL;
+		return res;
+	}
+
+	if ((flags & RENAME_NOREPLACE) == RENAME_NOREPLACE) {
+		if (n_inode != NULL) {
+			res = -EINVAL;
+			return res;
+		}
+		struct fs_node* o_entry = dummyfs_entry_search(fs, o_inode);
+		char op_path[strlen(old)];
+		char od_name[strlen(old)];
+		get_parent_path(old, op_path, od_name);
+
+		char np_path[strlen(new)];
+		char nd_name[strlen(new)];
+		get_parent_path(new, np_path, nd_name);
+
+		inode* op_inode = dummyfs_inode_search(fs, op_path);
+		struct fs_node* op_entry = dummyfs_entry_search(fs, op_inode);
+
+		inode* np_inode = dummyfs_inode_search(fs, np_path);
+		struct fs_node* np_entry = dummyfs_entry_search(fs, np_inode);
+
+		op_entry->children = g_list_remove(op_entry->children, o_entry);
+		np_entry->children = g_list_append(np_entry->children, o_entry);
+		char* name = malloc(strlen(nd_name) + 1);
+		strcpy(name, nd_name);
+		free(o_entry->name);
+		o_entry->name = name;
+		dummyfs_inode_add_explicit(fs, new, o_inode);
+		swisstable_map_erase(fs->inode_map, old, strlen(old));
+		dummyfs_rename_subdirs(fs, o_entry, old, new);
+	}
+
+	return 0;
+}
+
 static int
 dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offset, struct fuse_file_info* fi, enum fuse_readdir_flags flags)
 {
@@ -615,6 +695,7 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 	int res = 0;
 
 	inode* inode = dummyfs_inode_search(fs, path);
+	// TODO: check inode
 	struct fs_node* node = dummyfs_entry_search(fs, inode);
 	if (node != NULL && node->stat.st_nlink > 0) {
 		// Update fs tree
@@ -664,6 +745,7 @@ struct fuse_operations dummyfs_oper = {
 	.open     = dummyfs_open,
 	.read     = dummyfs_read,
 	.readdir  = dummyfs_readdir,
+	.rename   = dummyfs_rename,
 	.rmdir    = dummyfs_rmdir,
 	.statfs   = dummyfs_statfs,
 	.truncate = dummyfs_truncate,
