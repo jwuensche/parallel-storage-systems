@@ -120,3 +120,19 @@ The overall performance can be greatly enhanced further by using the `fuse_file_
 
 ---
 
+2. Filesystem Serialization
+===========================
+
+In the focus of writing the planned filesystem to a storage device or similar serialized format we explain in this section how we plan to utilize and organize a fixed amount of space to write the filesystem as to allow future reinitialization and some degree of fail-safety.
+
+2.1 General partition of the available storage
+==============================================
+
+2.2 Inodes
+==========
+
+2.3 Metadata
+============
+
+2.4 Content
+===========
