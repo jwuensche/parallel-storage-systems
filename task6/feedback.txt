@@ -1,0 +1,9 @@
+Please specify the amount of time you needed in hours.
+Please put an X in the appropriate column below.
+
+Time required:
+Difficult:       [ ] too easy  [X] spot-on        [ ] too hard
+Instructive:     [ ] a little  [X] okay           [ ] a lot
+Understandable:  [ ] unclear   [ ] a bit unclear  [X] clear
+
+Comments
