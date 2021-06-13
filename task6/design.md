@@ -123,27 +123,27 @@ The overall performance can be greatly enhanced further by using the `fuse_file_
 2. Filesystem Serialization
 ===========================
 
-In the focus of writing the planned filesystem to a storage device or similar serialized format we explain in this section how we plan to utilize and organize a fixed amount of space to write the filesystem as to allow future reinitialization and some degree of fail-safety.
+In the effort of writing the planned filesystem to a storage device or similar serialized format, we explain in this section how we plan to utilize and organize a fixed amount of space to write the filesystem as to allow future reinitialization and some degree of fail-safety.
 
 2.1 General partition of the available storage
 ==============================================
 
 ![Overview of the partition of an underlying block device](blockdevice.pdf)
 
-The filesystem itself is partitioned into two major realms, first the superblock containing the inodes, paths, file metadata and other information about the filesystem. In Figure 2 we show an approximate overview of this partition scheme. Areas colored in green and blue represent the superblock, the rest of the device would be colored in orange representing the content of individual files.
+The filesystem itself is partitioned into two major realms, first the superblock containing the inodes, paths, file metadata and other information about the filesystem and second the content of these files.
+In Figure 2 we show an approximate overview of this partition scheme. Areas colored in green and blue represent the superblock, the rest of the device is colored in orange representing the content of individual files.
 
 
 2.2 Inodes
 ==========
 
-As already mentioned the inodes are stored in the superblock at the beginning of the device. We discuss at the moment if it is sensible to store the path on disk with them. An alternative would be to store only the names of the files in the file entries and construct the paths anew by traversing the file tree once as we have to fill the hashtables anyway again.
+As already mentioned the inodes are stored in the superblock at the beginning of the device. We discuss at the moment if it is sensible to store the path on disk with them. An alternative would be to store only the names of the files in the file entries and construct the paths anew by traversing the file tree once as we have to fill the hashtables anyway again. With these inodes a block id is given to the block storing the metadata of the inode.
 
-The order of inodes stored then gives the order as they occur in the saved metadata.
 
 2.3 Metadata
 ============
 
-The metadata of the file entries is the last major content stored in the superblock. Their a modified version of the `fs_node` struct is stored. 
+The metadata of the file entries is the next major content stored in the superblock. There a modified version of the `fs_node` struct is stored. 
 
 ```C
 struct fs_node {
@@ -158,7 +158,7 @@ struct fs_node {
 };
 ```
 
-Difficult point in the implementation of this will probably be the variable width elements in this base structure leading to a relatively difficult structure in the superblock or inefficient space usage. For now we will give a large amount (4 KiB) to each entry in the beginning and larger entries will have to occupy more blocks. This can be done via a similar approach as in the content blocks, as in continuing the data will be done via a block pointer in this case stored in the current block, though accessing them will be more effort this way.
+Difficult point in the implementation of this will be the variable width elements in this base structure leading to a relatively difficult structure in the superblock or inefficient space usage. For now we will give a large amount (4 KiB) to each entry in the beginning and larger entries will have to occupy more blocks. This can be done via a similar approach as in the content blocks, as in continuing the data will be done via a block pointer in this case stored in the current block, though accessing them will be more effort this way.
 
 Sufficiently large file systems may reach the allocated superblock size with enough entries and large directories, in this case we need to extend the superblock size.
 This may be very inefficient and should be avoided at all costs as shifting the content stored after the superblock would be required. Depending on the file system size this has creates greater impact.
@@ -167,7 +167,7 @@ Another way to prevent this is to reorder blocks in our block device layout. By 
 2.4 Content
 ===========
 
-Outside of this superblock the memory will be managed in blocks, whereas our blocksize is choosable, by default 4 KiB are used. These blocks are then assigned to certain inodes, with one block belonging to one or none inodes. The distribution of these blocks will be done with an allocation manager distributing known free blocks to inodes requesting more space, the information to which blocks are assigned to files are then stored in the file entries. This is done via a block pointers indexing a beginning block and a range of following blocks.
+Outside of this superblock the memory will be managed in blocks, whereas our block size is selectable, by default 4 KiB are used. These blocks are then assigned to certain inodes, with one block belonging to one or none inodes. The distribution of these blocks will be done with an allocation manager distributing known free blocks to inodes requesting more space, the information to which blocks are assigned to files are then stored in the file entries. This is done via a block pointers indexing a beginning block and a range of following blocks.
 
 ---
 
@@ -186,10 +186,11 @@ struct block_pointer {
 
 The file entries are then able to fetch their content via a wrapper which receives the file entry information, a destination buffer, and desired range in the file and stitches these blocks together.
 
-This block distributor will perform a rather simple greedy distribution which might lead to more fragmentation, though this approach can be changed later on modularly without effect to other logic. Aspects taken into consideration are the continuation of memory, e.g if in Figure 3 the example file requires a greater amount of space the block distributor will choose to extend the block range starting at `block_id` 5 instead of the free range at `block_id` 4.
+This block distributor will perform a rather simple greedy distribution which might lead to more fragmentation, though this approach can be changed later on modularly without effect to other logic. Aspects taken into consideration are the continuation of memory, e.g. if in Figure 3 the example file requires a greater amount of space the block distributor will choose to extend the block range starting at `block_id` 5 instead of the free range at `block_id` 4.
+
 Internally the block distributor will store the beginning and length of free block ranges, these will also be stored in the superblock to avoid a recreation in case of a filesystem restart.
 
-Choosing this structure has the consequence of centralizing this block distribution as not more than one actor may modify this state, resulting in a reduction of speed when multiple files are extended beyond their allocated range. Though any other operations may be performed unbounded from another.
+Choosing this structure has the consequence of centralizing this block distribution as not more than one actor may modify this state, resulting in a reduction of performance when multiple files are extended beyond their allocated range. Though any other operations may be performed unbounded from another.
  
 2.5 Data Integrity and Fail Safety
 ==================================
