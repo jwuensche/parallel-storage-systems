@@ -17,37 +17,28 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <fcntl.h>
-#include "swisstable/swisstable.h"
+#include "../swisstable/swisstable.h"
 #include <stdatomic.h>
 #include <gmodule.h>
+#include "../include/block_distributor.h"
+#include "../include/fs_node.h"
 
-#define TEN_MIB sizeof(char) * 10 * 1024 * 1024
-#define ONE_KB sizeof(char) * 1 * 1024
-#define FOUR_GB sizeof(char) * 4 * 1024 * 1024 * 1024
+
+#define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
+#define MAX_FILE_SIZE sizeof(char) * 256 * 1024 * 1024
 
 typedef unsigned int inode;
 
 struct dummyfs {
+	void* data;
 	inode cur_inode;
 	swisstablemap_t* entry_map;
 	swisstablemap_t* inode_map;
 	atomic_size_t total_bytes;
 };
 
-struct fs_node {
-	// A poor mans spinlock, this is better substituted with another explicit structure but time is running low...
-	atomic_flag busy;
-	char* name;
-	GList* children;
-	size_t num_children;
-	char* content;
-	size_t allocated_size;
-	inode inode;
-	struct stat stat;
-};
-
 void* dummyfs_allocate(struct dummyfs* fs, size_t bytes) {
-	if (fs->total_bytes + bytes > FOUR_GB) {
+	if (fs->total_bytes + bytes > FS_SIZE) {
 		return NULL;
 	}
 	void* ptr = malloc(bytes);
@@ -58,7 +49,7 @@ void* dummyfs_allocate(struct dummyfs* fs, size_t bytes) {
 }
 
 void* dummyfs_reallocate(struct dummyfs*fs, void* old, size_t bytes, size_t current_bytes) {
-	if (current_bytes < bytes && FOUR_GB < fs->total_bytes + (bytes - current_bytes)) {
+	if (current_bytes < bytes && FS_SIZE < fs->total_bytes + (bytes - current_bytes)) {
 		return NULL;
 	}
 	void* ptr = realloc(old, bytes);
@@ -123,8 +114,8 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	new_entry->name = strcpy(dummyfs_allocate(fs, (strlen(name) + 1)), name);
 	new_entry->num_children = 0;
 	new_entry->children = NULL;
-	new_entry->content = dummyfs_allocate(fs, (ONE_KB));
-	new_entry->allocated_size = ONE_KB;
+	new_entry->content = dummyfs_allocate(fs, (BLOCK_SIZE));
+	new_entry->allocated_size = BLOCK_SIZE;
 	new_entry->inode = fs->cur_inode;
 
 	// Init metadata
@@ -134,7 +125,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	meta->st_gid = gid;
 	meta->st_size = 0;
 	meta->st_blocks = 1;
-	meta->st_blksize = ONE_KB;
+	meta->st_blksize = BLOCK_SIZE;
 	meta->st_dev = 1337;
 	meta->st_mode = S_IFREG;
 	struct timespec ts;
@@ -185,7 +176,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	meta->st_nlink = 2;
 	meta->st_mode = S_IFDIR | 0755;
 	meta->st_blocks = 1;
-	meta->st_blksize = ONE_KB;
+	meta->st_blksize = BLOCK_SIZE;
 	meta->st_dev = 1337;
 	meta->st_size = sizeof(inode);
 	struct timespec ts;
@@ -244,29 +235,6 @@ void get_first_element(const char* source, char* target) {
 	}
 }
 
-// struct fs_node* _dummyfs_find_node(struct dummyfs* fs, const char* path, struct fs_node* parent) {
-// 	struct fs_node* target = NULL;
-// 	char next_child[256] = {0};
-// 	get_first_element(path, next_child);
-// 	// //printf("path = %s\n", path);
-// 	// //printf("next_child = %s\n", next_child);
-// 	if (strcmp(next_child, "/") == 0 || strcmp(path, "") == 0) {
-// 		// //printf("Found %s\n", parent->name);
-// 		return parent;
-// 	}
-// 	for (size_t idx = 0; idx < parent->num_children; idx += 1) {
-// 		/// //printf("Checking %s\n", parent->children[idx].name);
-// 		if (strcmp(parent->children[idx].name,next_child) == 0) {
-// 			return _dummyfs_find_node(fs, path + strlen(next_child) + 1, &parent->children[idx]);
-// 		}
-// 	}
-// 	return target;
-// }
-//
-// struct fs_node* dummyfs_find_node(struct dummyfs* fs, const char* path) {
-// 	return _dummyfs_find_node(fs, path, fs->root);
-// }
-
 static int
 dummyfs_chmod (const char* path, mode_t mode, struct fuse_file_info* fi)
 {
@@ -307,7 +275,6 @@ void get_parent_path(const char* path, char* target, char* name) {
 static int
 dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 {
-	//printf("Enterin
 	int res = 0;
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
@@ -620,13 +587,13 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 
 	if (node != NULL && (node->stat.st_mode & S_IFREG) == S_IFREG) {
 		while (atomic_flag_test_and_set(&node->busy)) {}
-		if ((long unsigned int) size > TEN_MIB) {
+		if ((long unsigned int) size > MAX_FILE_SIZE) {
 			res = -ENOSPC;
 			return res;
 		}
 		off_t allocate_size = size;
-		if ((long unsigned int) size < ONE_KB) {
-			allocate_size = ONE_KB;
+		if ((long unsigned int) size < BLOCK_SIZE) {
+			allocate_size = BLOCK_SIZE;
 		}
 
 		void* n_content = dummyfs_reallocate(fs, node->content, allocate_size, node->allocated_size);
@@ -703,7 +670,7 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 		if ((off_t)(offset + size) > node->stat.st_size) {
 			size_t n_size = node->stat.st_size + size - (node->stat.st_size - offset);
 			//printf("Increasing size to %ld\n", n_size);
-			if (n_size > TEN_MIB) {
+			if (n_size > MAX_FILE_SIZE) {
 				res = -ENOSPC;
 				return res;
 			}

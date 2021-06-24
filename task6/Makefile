@@ -1,4 +1,4 @@
-CC     = gcc
+CC     = clang
 CFLAGS = -std=c11 -Wall -Wextra -Wpedantic -O2 -g
 LDLIBS = -lm
 
@@ -12,12 +12,17 @@ data: data.c
 
 pssfs: CFLAGS += $(shell pkg-config --cflags fuse3 glib-2.0)
 pssfs: LDLIBS += $(shell pkg-config --libs fuse3 glib-2.0) -lstdc++ -lm
-pssfs: pssfs.c swisstable/libswisstable.a
+pssfs: src/pssfs.c block_distributor.o swisstable/libswisstable.a
+	$(CC) src/pssfs.c block_distributor.o swisstable/libswisstable.a $(CFLAGS)
+
+block_distributor.o: CFLAGS += $(shell pkg-config --cflags glib-2.0)
+block_distributor.o: src/block_distributor.c include/block_distributor.h
+	$(CC) -c src/block_distributor.c $(CFLAGS)
 
 swisstable/libswisstable.a:
 	git clone https://github.com/jwuensche/swisstable.git
 	cd swisstable && git clone https://github.com/abseil/abseil-cpp.git && cd abseil-cpp && git checkout $(ABSEIL_VERSION)
-	cd swisstable && cmake . && make
+	cd swisstable && cmake . && make -j 8
 
 design:
 	@exec ./build.sh
@@ -26,4 +31,3 @@ clean:
 	$(RM) data
 	$(RM) pssfs
 	$(RM) -r swisstable
-	$(RM) design.pdf || true
