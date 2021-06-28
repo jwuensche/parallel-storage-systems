@@ -47,6 +47,44 @@ int block_group_first_free(char block) {
     return -1;
 }
 
+
+int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t first_free, size_t group_no, size_t req_blocks) {
+        size_t first = block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no]));
+        size_t rem = req_blocks - first;
+        size_t view = group_no;
+        char suc = 0;
+        while (rem > 0) {
+            view += 1;
+            // TODO: Check for end of memory
+            if (block_group_free(bd->block_groups[view]) != 8 && rem > 8) {
+                return -1;
+            }
+            if (rem <= 8 && block_group_free_head(bd->block_groups[view], rem) == rem) {
+                // Success!
+                break;
+            }
+            if (rem > 8 && block_group_free(bd->block_groups[view]) == 8) {
+                rem -= 8;
+                continue;
+            }
+            return -1;
+        }
+        // Search was successful and view contains the last block with have to consider
+        bd->block_groups[group_no] |= ((char) 255 >> (8 - first));
+        for (size_t blocks = group_no + 1; blocks < view; blocks += 1) {
+            bd->block_groups[blocks] = (char) 0;
+        }
+        bd->block_groups[view] |= ((char) 255 << rem);
+        // Update node pointer
+        struct block_pointer local_p;
+        local_p.block_begin = first_free;
+        local_p.block_length = req_blocks;
+        node->bps[node->num_blocks] = local_p;
+        node->num_blocks += 1;
+
+        return 0;
+}
+
 int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, size_t size, size_t req_blocks) {
     if (bd->num_free_start > 0 || reinit_free_start(bd) < 0) {
         // Free Block Range Failed...
@@ -88,40 +126,10 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         } else if (
             block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no])) == block_group_free(bd->block_groups[group_no])
         ) {
-            size_t first = block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no]));
-            size_t rem = req_blocks - first;
-            size_t view = group_no;
-            char suc = 0;
-            while (rem > 0) {
-                view += 1;
-                // TODO: Check for end of memory
-                if (block_group_free(bd->block_groups[view]) != 8 && rem > 8) {
-                    goto skip;
-                }
-                if (rem <= 8 && block_group_free_head(bd->block_groups[view], rem) == rem) {
-                    // Success!
-                    break;
-                }
-                if (rem > 8 && block_group_free(bd->block_groups[view]) == 8) {
-                    rem -= 8;
-                    continue;
-                }
-                goto skip;
+            if (try_block_append(bd, node, first_free, group_no, req_blocks) >= 0) {
+                return req_blocks;
             }
-            // Search was successful and view contains the last block with have to consider
-            bd->block_groups[group_no] |= ((char) 255 >> (8 - first));
-            for (size_t blocks = group_no + 1; blocks < view; blocks += 1) {
-                bd->block_groups[blocks] = (char) 0;
-            }
-            bd->block_groups[view] |= ((char) 255 << rem);
-            // Update node pointer
-            struct block_pointer local_p;
-            local_p.block_begin = first_free;
-            local_p.block_length = req_blocks;
-            node->bps[node->num_blocks] = local_p;
-            node->num_blocks += 1;
         } else {
-            skip:
             continue;
         }
     }
@@ -150,25 +158,10 @@ int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node
 
     // Last known space
     size_t continuation_block = node->bps[node->num_blocks-1].block_begin + node->bps[node->num_blocks-1].block_length;
+    size_t group_no = continuation_block % 8;
 
-    for (size_t cur = 0; cur < bd->num_block_ranges; cur +=1) {
-        struct block_pointer bp = bd->block_range[cur];
-
-        if (bp.block_begin == continuation_block && bp.block_length >= req_blocks) {
-            // Fitting continuation
-            node->bps[node->num_blocks-1].block_length += req_blocks;
-            if (bp.block_begin > req_blocks) {
-                // Remaining space after
-                bp.block_length -= req_blocks;
-                bp.block_begin += req_blocks;
-            } else {
-                // Remove logically reassign this later
-                bp.block_length = 0;
-            }
-        }
-        if (bp.block_begin > continuation_block) {
-            break;
-        }
+    if (try_block_append(bd, node, continuation_block, group_no, req_blocks) >= 0) {
+        return req_blocks;
     }
 
     return fetch_block_and_append(bd, node, size, req_blocks);
