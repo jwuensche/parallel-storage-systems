@@ -2,7 +2,7 @@
 #include <stddef.h>
 
 size_t block_group_free(char block) {
-    return __builtin_popcount(block);
+    return 8 - __builtin_popcount(block);
 }
 
 size_t get_block_group(size_t block) {
@@ -64,7 +64,7 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
             // Update Storage bitmap
             char block_pos = first_free % 8;
             char pattern = (255 >> (8 - req_blocks)) << (8 - block_pos - req_blocks);
-            bd->block_groups[group_no] ^= pattern;
+            bd->block_groups[group_no] |= pattern;
 
             // Update node pointer
             struct block_pointer local_p;
@@ -88,7 +88,6 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         } else if (
             block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no])) == block_group_free(bd->block_groups[group_no])
         ) {
-            // TODO: Check subsequent block groups if the remaining space can be filled
             size_t first = block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no]));
             size_t rem = req_blocks - first;
             size_t view = group_no;
@@ -110,11 +109,11 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
                 goto skip;
             }
             // Search was successful and view contains the last block with have to consider
-            bd->block_groups[group_no] ^= ((char) 255 >> (8 - first));
+            bd->block_groups[group_no] |= ((char) 255 >> (8 - first));
             for (size_t blocks = group_no + 1; blocks < view; blocks += 1) {
                 bd->block_groups[blocks] = (char) 0;
             }
-            bd->block_groups[view] ^= ((char) 255 << rem);
+            bd->block_groups[view] |= ((char) 255 << rem);
             // Update node pointer
             struct block_pointer local_p;
             local_p.block_begin = first_free;

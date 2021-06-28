@@ -20,7 +20,7 @@ struct block_distributor {
 
 void block_distributor_init(struct block_distributor* bd) {
     bd->num_free_start = 0;
-    memset(&bd->block_groups, (char) 255, 412878);
+    memset(&bd->block_groups, (char) 0, 412878);
 }
 
 int block_distributor_alloc(struct block_distributor* bd, struct fs_node* node, size_t size);
