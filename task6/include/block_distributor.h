@@ -9,6 +9,13 @@
 #define BLOCK_SIZE sizeof(char) * 4 * 1024
 #define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
 
+#define HEADER sizeof(char) * 512
+#define INODES sizeof(char) * 0 + HEADER
+#define ENTRIES sizeof(char) * 64 * 1024 * 1024 + HEADER
+#define DIST_HEADER sizeof(char) * 128 * 1024 * 1024 + HEADER
+#define DIST_CONTENT sizeof(char) *129 * 1024 * 1024 + HEADER
+#define CONTENT sizeof(char) *130 * 1024 * 1024 + HEADER
+
 struct block_pointer {
     size_t block_begin;
     size_t block_length;

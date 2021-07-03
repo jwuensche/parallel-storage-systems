@@ -11,13 +11,6 @@
 
 #define MAGIC 197
 
-#define HEADER sizeof(char) * 512
-#define INODES sizeof(char) * 0 + HEADER
-#define ENTRIES sizeof(char) * 64 * 1024 * 1024 + HEADER
-#define DIST_HEADER sizeof(char) * 128 * 1024 * 1024 + HEADER
-#define DIST_CONTENT sizeof(char) *129 * 1024 * 1024 + HEADER
-#define CONTENT sizeof(char) *130 * 1024 * 1024 + HEADER
-
 struct inode_writer {
     size_t offset;
     void* data;

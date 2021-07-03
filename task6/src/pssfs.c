@@ -25,6 +25,7 @@
 #include "../include/fs_node.h"
 #include "../include/dummyfs.h"
 #include "../include/serializers.h"
+#include "../include/block_writer.h"
 
 
 #define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
