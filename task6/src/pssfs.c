@@ -114,8 +114,6 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	new_entry->name = strcpy(dummyfs_allocate(fs, (strlen(name) + 1)), name);
 	new_entry->num_children = 0;
 	new_entry->children = NULL;
-	new_entry->content = dummyfs_allocate(fs, (BLOCK_SIZE));
-	new_entry->allocated_size = BLOCK_SIZE;
 	new_entry->inode = fs->cur_inode;
 
 	// Init metadata
@@ -124,7 +122,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	meta->st_uid = uid;
 	meta->st_gid = gid;
 	meta->st_size = 0;
-	meta->st_blocks = 1;
+	meta->st_blocks = 0;
 	meta->st_blksize = BLOCK_SIZE;
 	meta->st_dev = 1337;
 	meta->st_mode = S_IFREG;
@@ -439,9 +437,9 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 		// printf("Reported size is %ld and allocated %zu\n", node->meta.st_size, node->allocated_size);
 		while (atomic_flag_test_and_set(&node->busy)) {}
 		if (offset + size > (unsigned long) node->meta.st_size) {
-			memcpy(buf, node->content + offset, node->meta.st_size - offset);
+			blockread(fs, buf, node, offset, node->meta.st_size - offset);
 		} else {
-			memcpy(buf, node->content + offset, size);
+			blockread(fs, buf, node, offset, size);
 		}
 		atomic_flag_clear(&node->busy);
 		// printf("Accessed content.\n");
@@ -630,13 +628,7 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 			allocate_size = BLOCK_SIZE;
 		}
 
-		void* n_content = dummyfs_reallocate(fs, node->content, allocate_size, node->allocated_size);
-		if (n_content == NULL) {
-			res = -ENOMEM;
-			return res;
-		}
-		node->content = n_content;
-		node->allocated_size = allocate_size;
+		block_distributor_realloc(fs->block_distributor, node, allocate_size);
 		node->meta.st_size = size;
 		atomic_flag_clear(&node->busy);
 		//printf("Setting size to %ld", node->meta.st_size);
@@ -713,19 +705,19 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 				res = -ENOSPC;
 				return res;
 			}
-			if (n_size > node->allocated_size) {
-				void* n_content = dummyfs_reallocate(fs, node->content, n_size, node->allocated_size);
-				if (n_content == NULL) {
-					res = -ENOMEM;
+			if (n_size > node->meta.st_blocks * BLOCK_SIZE) {
+				int block_change = block_distributor_realloc(fs->block_distributor, node, n_size);
+				if (block_change == 0) {
+					res = -ENOSPC;
 					return res;
 				}
-				node->content = n_content;
+				node->meta.st_blocks += block_change;
 			}
-			node->allocated_size = n_size;
 			node->meta.st_size = n_size;
 		}
-		// Write to target memory
-		memcpy(node->content + offset, buf, size);
+		printf("WRITE TO ENTRY\n");
+		// Write to node storage
+		blockwrite(fs, buf, node, offset, size);
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
 		node->meta.st_mtime = ts.tv_sec;

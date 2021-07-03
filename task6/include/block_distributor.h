@@ -6,7 +6,7 @@
 #include <unistd.h>
 #include "fs_node.h"
 
-#define BLOCK_SIZE sizeof(char) * 4 * 1024
+#define BLOCK_SIZE (size_t) (4 * 1024)
 #define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
 
 #define HEADER sizeof(char) * 512

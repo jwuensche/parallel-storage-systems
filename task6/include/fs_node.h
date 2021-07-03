@@ -16,8 +16,6 @@ struct fs_node {
 	char* name;
 	size_t num_children;
 	GList* children;
-	char* content;
-	size_t allocated_size;
 	inode inode;
 	struct stat meta;
 	GList* bps;
