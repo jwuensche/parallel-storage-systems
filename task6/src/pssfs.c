@@ -12,6 +12,7 @@
 #include <sys/statvfs.h>
 #include <sys/time.h>
 #include <sys/types.h>
+#include <sys/mman.h>
 #include <time.h>
 #include <unistd.h>
 #include <stdlib.h>
@@ -188,7 +189,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	return dir;
 }
 
-void dummyfs_init (struct dummyfs* fs) {
+void dummyfs_init (struct dummyfs* fs, int fd) {
 	fs->cur_inode = 0;
 	fs->total_bytes = 0;
 	fs->entry_map = swisstable_map_create();
@@ -199,6 +200,13 @@ void dummyfs_init (struct dummyfs* fs) {
 	swisstable_map_reserve(fs->inode_map, 1024);
 	fs->total_bytes += 1024 * sizeof(char*);
 	fs->total_bytes += 1024 * sizeof(struct fs_node*);
+
+	fs->data = mmap(NULL, FS_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+
+	if (fs->data == NULL) {
+		printf("Could not open device or file\n");
+		exit(1);
+	}
 
 	// inode* test = dummyfs_inode_search(fs, "/");
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
@@ -716,8 +724,18 @@ struct fuse_operations dummyfs_oper = {
 int main (int argc, char* argv[])
 {
 	struct dummyfs dfs;
-	dummyfs_init(&dfs);
+
+	if (argc < 3) {
+		printf("Usage:\n");
+		printf("\tpssfs <device> <mountpoint>\n");
+		return 0;
+	}
+
+
+	char* device_path = argv[1];
+	int fd = open(device_path, O_RDWR);
+	dummyfs_init(&dfs, fd);
 
 	printf("Initialized!\n");
-	return fuse_main(argc, argv, &dummyfs_oper, &dfs);
+	return fuse_main(argc - 1, argv + 1, &dummyfs_oper, &dfs);
 }

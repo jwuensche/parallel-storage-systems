@@ -53,8 +53,8 @@ int serialize_entry(struct dummyfs* fs, struct fs_node* node, size_t block) {
         GList *cur;
         for (cur = node->children; cur != NULL; cur = cur->next) {
             write_size = sizeof(inode);
-            inode ino = (inode) cur->data;
-            memcpy(dat + offset_from_block(block, ENTRIES, BLOCK_SIZE) + offset, &ino, write_size);
+            inode* ino = (inode*) cur->data;
+            memcpy(dat + offset_from_block(block, ENTRIES, BLOCK_SIZE) + offset, ino, write_size);
             offset += write_size;
         }
     } else {
@@ -95,7 +95,7 @@ int serialize_entry(struct dummyfs* fs, struct fs_node* node, size_t block) {
         offset += write_size;
     }
 
-    return -1;
+    return 0;
 }
 
 void cb_serialize_inode(void* key, void* value, void* data) {

@@ -6,6 +6,7 @@
 #include "fs_node.h"
 
 #define BLOCK_SIZE sizeof(char) * 4 * 1024
+#define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
 
 struct block_pointer {
     size_t block_begin;
