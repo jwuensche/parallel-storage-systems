@@ -58,23 +58,29 @@ void* dummyfs_reallocate(struct dummyfs*fs, void* old, size_t bytes, size_t curr
 }
 
 inode* dummyfs_inode_add(struct dummyfs* fs, const char* name) {
-	inode* n_inode = dummyfs_allocate(fs, (sizeof(inode)));
-	*n_inode = fs->cur_inode++;
 	char* key = dummyfs_allocate(fs, (strlen(name) + 1));
 	strcpy(key, name);
-	// printf("Adding %s with length %lu\n", key, strlen(key));
+	// printf("Adding %s with length %lu\n", key, strlen(key));o
+	long metadata_block = meta_block_distributor_get_next_free(fs->meta_distributor);
+	if (metadata_block < 0) {
+		exit(13);
+	}
+	struct inode_info* n_inode = dummyfs_allocate(fs, (sizeof(struct inode_info)));
+	n_inode->inode = fs->cur_inode++;
+	n_inode->block = metadata_block;
+
 	swisstable_map_insert(fs->inode_map, key, strlen(key), n_inode);
-	return n_inode;
+	return &n_inode->inode;
 }
 
-inode* dummyfs_inode_add_explicit(struct dummyfs* fs, const char* name, inode* ino) {
+struct inode_info* dummyfs_inode_add_explicit(struct dummyfs* fs, const char* name, struct inode_info* ino) {
 	char* key = dummyfs_allocate(fs, (strlen(name) + 1));
 	strcpy(key, name);
 	swisstable_map_insert(fs->inode_map, key, strlen(key), ino);
 	return ino;
 }
 
-inode* dummyfs_inode_search(struct dummyfs* fs, const char* name) {
+struct inode_info* dummyfs_inode_search(struct dummyfs* fs, const char* name) {
 	// printf("Searching %s with length %lu\n", name, strlen(name));
 	return swisstable_map_search(fs->inode_map, name, strlen(name));
 }
@@ -90,7 +96,7 @@ struct fs_node* dummyfs_entry_search(struct dummyfs* fs, inode* inode) {
 struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const char* parent, struct fuse_file_info* fi, uid_t uid, gid_t gid) {
 	(void) fi;
 
-	inode* p_inode = dummyfs_inode_search(fs, parent);
+	inode* p_inode = &dummyfs_inode_search(fs, parent)->inode;
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 
 	char path[strlen(name) + strlen(parent) + 1];
@@ -181,7 +187,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	dummyfs_entry_add(fs, new_inode, dir);
 
 	if (parent != NULL) {
-		inode* p_inode = dummyfs_inode_search(fs, parent);
+		inode* p_inode = &dummyfs_inode_search(fs, parent)->inode;
 		struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 		p_entry->children = g_list_append(p_entry->children, new_inode);
 	}
@@ -190,6 +196,19 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 }
 
 void dummyfs_init (struct dummyfs* fs, int fd) {
+
+	fs->data = mmap(NULL, FS_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	if (fs->data == NULL) {
+		printf("Could not open device or file\n");
+		exit(1);
+	}
+
+	unsigned* foo = fs->data;
+	if (*foo == (unsigned) MAGIC) {
+		printf("Reinitialization not yet implemented\n");
+		exit(14);
+	}
+
 	fs->cur_inode = 0;
 	fs->total_bytes = 0;
 	fs->entry_map = swisstable_map_create();
@@ -201,12 +220,12 @@ void dummyfs_init (struct dummyfs* fs, int fd) {
 	fs->total_bytes += 1024 * sizeof(char*);
 	fs->total_bytes += 1024 * sizeof(struct fs_node*);
 
-	fs->data = mmap(NULL, FS_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	fs->block_distributor = malloc(sizeof(struct block_distributor));
+	block_distributor_init(fs->block_distributor);
+	fs->meta_distributor = malloc(sizeof(struct meta_block_distributor));
+	meta_block_distributor_init(fs->meta_distributor);
 
-	if (fs->data == NULL) {
-		printf("Could not open device or file\n");
-		exit(1);
-	}
+
 
 	// inode* test = dummyfs_inode_search(fs, "/");
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
@@ -287,7 +306,7 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	char name[strlen(path)];
 	get_parent_path(path, parent_path, name);
 	//printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
-	inode* p_inode = dummyfs_inode_search(fs, parent_path);
+	inode* p_inode = &dummyfs_inode_search(fs, parent_path)->inode;
 	if (p_inode == NULL) {
 		res = -ENOENT;
 		return res;
@@ -310,11 +329,12 @@ dummyfs_getattr (const char* path, struct stat* stbuf, struct fuse_file_info* fi
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 
-	inode* n_inode = dummyfs_inode_search(fs, path);
-	if (n_inode == NULL) {
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	inode* n_inode = &n_inode_info->inode;
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 	memset(stbuf, 0, sizeof(struct stat));
 
@@ -351,7 +371,7 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 	char p_path[strlen(path)];
 	char d_name[strlen(path)];
 	get_parent_path(path, p_path, d_name);
-	inode* p_inode = dummyfs_inode_search(fs, p_path);
+	inode* p_inode = &dummyfs_inode_search(fs, p_path)->inode;
 	// printf("Looking up parent \"%s\" with %lu\n", p_path, strlen(p_path));
 	if (p_inode == NULL) {
 		res = -ENOTDIR;
@@ -382,11 +402,14 @@ dummyfs_open (const char* path, struct fuse_file_info* fi)
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	inode* n_inode = dummyfs_inode_search(fs, path);
-	if (n_inode == NULL) {
+
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	// inode* n_inode = &n_inode_info->inode;
+
 	return 0;
 }
 
@@ -399,11 +422,13 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	inode* n_inode = dummyfs_inode_search(fs, path);
-	if (n_inode == NULL) {
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	inode* n_inode = &n_inode_info->inode;
+
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && node->meta.st_nlink > 0 && (node->meta.st_mode & S_IFREG) == S_IFREG) {
@@ -450,7 +475,7 @@ void dummyfs_rename_subdirs(struct dummyfs* fs, struct fs_node* o_entry, const c
 			strcpy(nc_path, new);
 			strcat(nc_path, "/");
 			strcat(nc_path, child->name);
-			inode* c_inode = dummyfs_inode_search(fs, oc_path);
+			struct inode_info* c_inode = dummyfs_inode_search(fs, oc_path);
 			swisstable_map_erase(fs->inode_map, oc_path, strlen(oc_path));
 			dummyfs_inode_add_explicit(fs, nc_path, c_inode);
 			dummyfs_rename_subdirs(fs, child, oc_path, nc_path);
@@ -465,12 +490,12 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	inode* o_inode = dummyfs_inode_search(fs, old);
-	inode* n_inode = dummyfs_inode_search(fs, new);
+	struct inode_info* o_inode = dummyfs_inode_search(fs, old);
+	inode* n_inode = &dummyfs_inode_search(fs, new)->inode;
 
 	if ((flags & RENAME_EXCHANGE ) == RENAME_EXCHANGE) {
 		if (o_inode != NULL && n_inode != NULL) {
-			struct fs_node* o_entry = dummyfs_entry_search(fs, o_inode);
+			struct fs_node* o_entry = dummyfs_entry_search(fs, &o_inode->inode);
 			struct fs_node* n_entry = dummyfs_entry_search(fs, n_inode);
 			struct fs_node swap = *o_entry;
 			*o_entry = *n_entry;
@@ -486,7 +511,7 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 			res = -EINVAL;
 			return res;
 		}
-		struct fs_node* o_entry = dummyfs_entry_search(fs, o_inode);
+		struct fs_node* o_entry = dummyfs_entry_search(fs, &o_inode->inode);
 		char op_path[strlen(old)];
 		char od_name[strlen(old)];
 		get_parent_path(old, op_path, od_name);
@@ -495,14 +520,14 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 		char nd_name[strlen(new)];
 		get_parent_path(new, np_path, nd_name);
 
-		inode* op_inode = dummyfs_inode_search(fs, op_path);
+		inode* op_inode = &dummyfs_inode_search(fs, op_path)->inode;
 		struct fs_node* op_entry = dummyfs_entry_search(fs, op_inode);
 
-		inode* np_inode = dummyfs_inode_search(fs, np_path);
+		inode* np_inode = &dummyfs_inode_search(fs, np_path)->inode;
 		struct fs_node* np_entry = dummyfs_entry_search(fs, np_inode);
 
-		op_entry->children = g_list_remove(op_entry->children, o_inode);
-		np_entry->children = g_list_append(np_entry->children, o_inode);
+		op_entry->children = g_list_remove(op_entry->children, &o_inode->inode);
+		np_entry->children = g_list_append(np_entry->children, &o_inode->inode);
 		char* name = malloc(strlen(nd_name) + 1);
 		strcpy(name, nd_name);
 		free(o_entry->name);
@@ -528,11 +553,12 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	// Act from root
 	int res = 0;
 
-	inode* n_inode = dummyfs_inode_search(fs, path);
-	if (n_inode == NULL) {
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	inode* n_inode = &n_inode_info->inode;
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	while (atomic_flag_test_and_set(&node->busy)) {}
@@ -584,11 +610,12 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	inode* n_inode = dummyfs_inode_search(fs, path);
-	if (n_inode == NULL) {
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	inode* n_inode = &n_inode_info->inode;
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL && (node->meta.st_mode & S_IFREG) == S_IFREG) {
@@ -633,11 +660,12 @@ dummyfs_unlink (const char* path)
 	char name[strlen(path)];
 	get_parent_path(path, parent_path, name);
 
-	inode* n_inode = dummyfs_inode_search(fs, path);
-	if (n_inode == NULL) {
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	inode* n_inode = &n_inode_info->inode;
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	if (node != NULL) {
@@ -667,8 +695,12 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	inode* inode = dummyfs_inode_search(fs, path);
-	// TODO: check inode
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, path);
+	if (n_inode_info == NULL) {
+		res = -ENOENT;
+		return res;
+	}
+	inode* inode = &n_inode_info->inode;
 	struct fs_node* node = dummyfs_entry_search(fs, inode);
 	if (node != NULL && node->meta.st_nlink > 0) {
 		// Update fs tree

@@ -3,6 +3,7 @@
 
 #include <stddef.h>
 #include <string.h>
+#include <unistd.h>
 #include "fs_node.h"
 
 #define BLOCK_SIZE sizeof(char) * 4 * 1024
@@ -16,7 +17,7 @@ struct block_pointer {
 struct block_distributor {
     size_t num_free_start;
     size_t free_start[32];
-    char block_groups[412878];
+    unsigned char block_groups[412878];
 };
 
 void block_distributor_init(struct block_distributor* bd);
@@ -26,5 +27,16 @@ int block_distributor_alloc(struct block_distributor* bd, struct fs_node* node, 
 int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node, size_t size);
 
 int block_distributor_free(struct block_distributor* bd, struct fs_node* node);
+
+// SIMPLER METADATA BLOCKS
+struct meta_block_distributor {
+    unsigned char block_groups[2048];
+};
+
+void meta_block_distributor_init(struct meta_block_distributor* bd);
+
+long meta_block_distributor_get_next_free(struct meta_block_distributor* bd);
+
+void meta_block_distributor_free(struct meta_block_distributor* bd, size_t block);
 
 #endif /* BLOCK_DISTRIBUTOR_H */

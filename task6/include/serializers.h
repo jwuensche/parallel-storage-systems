@@ -9,11 +9,14 @@
 #include <unistd.h>
 #include <gmodule.h>
 
-#define INODES sizeof(char) * 0
-#define ENTRIES sizeof(char) * 64 * 1024 * 1024
-#define DIST_HEADER sizeof(char) * 128 * 1024 * 1024
-#define DIST_CONTENT sizeof(char) *129 * 1024 * 1024
-#define CONTENT sizeof(char) *130 * 1024 * 1024
+#define MAGIC 197
+
+#define HEADER sizeof(char) * 512
+#define INODES sizeof(char) * 0 + HEADER
+#define ENTRIES sizeof(char) * 64 * 1024 * 1024 + HEADER
+#define DIST_HEADER sizeof(char) * 128 * 1024 * 1024 + HEADER
+#define DIST_CONTENT sizeof(char) *129 * 1024 * 1024 + HEADER
+#define CONTENT sizeof(char) *130 * 1024 * 1024 + HEADER
 
 struct inode_writer {
     size_t offset;
@@ -120,6 +123,20 @@ int serialize_inodes(struct dummyfs* fs) {
     writer.offset = 0;
     writer.data = fs->data;
     swisstable_map_foreach_sideeffect(fs->inode_map, cb_serialize_inode, (void*) &writer);
+    return 0;
+}
+
+// 512 BYTES FOR MISC DATA AND INIT SIGN
+int serialize_header(struct dummyfs* fs) {
+    size_t offset = 0;
+    char* dat = (char*) fs->data;
+    unsigned magic = MAGIC;
+    memcpy(dat + offset, &magic, sizeof(unsigned));
+    offset += sizeof(unsigned);
+    memcpy(dat + offset, &fs->cur_inode, sizeof(inode));
+    offset += sizeof(inode);
+
+    // OPEN FOR MORE
     return 0;
 }
 

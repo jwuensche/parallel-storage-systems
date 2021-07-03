@@ -11,6 +11,8 @@ struct dummyfs {
 	inode cur_inode;
 	swisstablemap_t* entry_map;
 	swisstablemap_t* inode_map;
+	struct block_distributor* block_distributor;
+	struct meta_block_distributor* meta_distributor;
 	atomic_size_t total_bytes;
 };
 

@@ -1,6 +1,7 @@
 #include "../include/block_distributor.h"
 #include <stddef.h>
 #include <stdlib.h>
+#include <stdio.h>
 #include <gmodule.h>
 
 void block_distributor_init(struct block_distributor* bd) {
@@ -28,7 +29,7 @@ size_t block_group_free_tail(char block, size_t req) {
 
 // Return value represents the length free blocks in the range specified
 size_t block_group_free_head(char block, size_t req) {
-    return block_group_free(((char) 255 << req) & block);
+    return block_group_free(((unsigned char) 255 << (char) req) & block);
 }
 
 int block_group_seq(char block, size_t req) {
@@ -44,10 +45,10 @@ int block_group_seq(char block, size_t req) {
         ((block >> 7) & pattern) == pattern;
 }
 
-int block_group_first_free(char block) {
+int block_group_first_free(unsigned char block) {
     // Return the position of the first free block, not as efficicent but should be fast enough
-    for (size_t cur = 7; cur >= 0; cur -= 1) {
-        if (block >> cur == 1) {
+    for (int cur = 7; cur >= 0; cur -= 1) {
+        if (((block >> (unsigned char) cur) & 1) == 0) {
             return 7 - cur;
         }
     }
@@ -76,11 +77,11 @@ int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t 
             return -1;
         }
         // Search was successful and view contains the last block with have to consider
-        bd->block_groups[group_no] |= ((char) 255 >> (8 - first));
+        bd->block_groups[group_no] |= ((unsigned char) 255 >> (8 - first));
         for (size_t blocks = group_no + 1; blocks < view; blocks += 1) {
-            bd->block_groups[blocks] = (char) 0;
+            bd->block_groups[blocks] = (unsigned char) 0;
         }
-        bd->block_groups[view] |= ((char) 255 << rem);
+        bd->block_groups[view] |= ((unsigned char) 255 << rem);
         // Update node pointer
         struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
         local_p->block_begin = first_free;
@@ -174,4 +175,26 @@ int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node
 int block_distributor_free(struct block_distributor* bd, struct fs_node* node) {
     // TODO: Free
     return -1;
+}
+
+void meta_block_distributor_init(struct meta_block_distributor *bd) {
+    memset(&bd->block_groups, (char) 0, 2048);
+}
+
+long meta_block_distributor_get_next_free(struct meta_block_distributor *bd) {
+    for (size_t cur = 0; cur < 2048; cur += 1) {
+        printf("Checking block group %zu\n", cur);
+        if (bd->block_groups[cur] < 255) {
+            size_t local_pos = block_group_first_free(bd->block_groups[cur]);
+            bd->block_groups[cur] |= (unsigned char) 128 >> local_pos;
+            printf("Returning block %zu\n", 8 *cur + local_pos);
+            return 8 * cur + local_pos;
+        }
+    }
+    return -1;
+}
+
+void meta_block_distributor_free(struct meta_block_distributor *bd, size_t block) {
+    size_t bg = block  % 8;
+    bd->block_groups[bg] ^= (unsigned char) 128 >> (block / 8);
 }
