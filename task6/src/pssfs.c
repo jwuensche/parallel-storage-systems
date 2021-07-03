@@ -131,7 +131,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 
 	// Add new entry to exisiting structures
 	dummyfs_entry_add(fs, new_inode, new_entry);
-	p_entry->children = g_list_append(p_entry->children, new_entry);
+	p_entry->children = g_list_append(p_entry->children, new_inode);
 	p_entry->num_children += 1;
 
 	return new_entry;
@@ -183,7 +183,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	if (parent != NULL) {
 		inode* p_inode = dummyfs_inode_search(fs, parent);
 		struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
-		p_entry->children = g_list_append(p_entry->children, dir);
+		p_entry->children = g_list_append(p_entry->children, new_inode);
 	}
 
 	return dir;
@@ -438,7 +438,10 @@ void dummyfs_rename_subdirs(struct dummyfs* fs, struct fs_node* o_entry, const c
 	if ((o_entry->meta.st_mode & S_IFDIR) == S_IFDIR && o_entry->children != NULL) {
 		GList* elem;
 		for (elem = o_entry->children; elem != NULL; elem = elem->next) {
-			struct fs_node* child = elem->data;
+			struct fs_node* child = dummyfs_entry_search(fs, elem->data);
+			if (child == NULL) {
+				exit(42);
+			}
 			char oc_path[strlen(old) + strlen(child->name) + 1];
 			strcpy(oc_path, old);
 			strcat(oc_path, "/");
@@ -498,8 +501,8 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 		inode* np_inode = dummyfs_inode_search(fs, np_path);
 		struct fs_node* np_entry = dummyfs_entry_search(fs, np_inode);
 
-		op_entry->children = g_list_remove(op_entry->children, o_entry);
-		np_entry->children = g_list_append(np_entry->children, o_entry);
+		op_entry->children = g_list_remove(op_entry->children, o_inode);
+		np_entry->children = g_list_append(np_entry->children, o_inode);
 		char* name = malloc(strlen(nd_name) + 1);
 		strcpy(name, nd_name);
 		free(o_entry->name);
@@ -538,7 +541,10 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 		filler(buf, "..", NULL, 0, 0);
 		GList* cur = node->children;
 		while (cur!=NULL) {
-			struct fs_node* child = (struct fs_node*) cur->data;
+			struct fs_node* child = dummyfs_entry_search(fs, cur->data);
+			if (child == NULL) {
+				exit(42);
+			}
 			if (child->meta.st_nlink > 0) {
 				filler(buf,child->name, NULL, 0, 0);
 			}
