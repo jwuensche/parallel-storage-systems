@@ -715,7 +715,7 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 			}
 			node->meta.st_size = n_size;
 		}
-		printf("WRITE TO ENTRY\n");
+		// printf("WRITE TO ENTRY\n");
 		// Write to node storage
 		blockwrite(fs, buf, node, offset, size);
 		struct timespec ts;

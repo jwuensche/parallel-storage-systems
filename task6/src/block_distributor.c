@@ -24,8 +24,8 @@ int reinit_free_start(struct block_distributor* bd) {
 }
 
 // Return value represents the length free blocks in the range specified
-size_t block_group_free_tail(unsigned char block, size_t req) {
-    return block_group_free(((char) 255 >> (8-req)) & block);
+int block_group_free_tail(unsigned char block, size_t req) {
+    return (((unsigned char) 255 >> (8-req)) & block) == 0;
 }
 
 // Return value represents the length free blocks in the range specified
@@ -58,12 +58,15 @@ int block_group_first_free(unsigned char block) {
 
 int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t first_free, size_t group_no, size_t req_blocks) {
         size_t first = block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no]));
+        // printf("First blocks: %zu\n", first);
         size_t rem = req_blocks - first;
         size_t view = group_no;
+        // printf("Continuing storage, searching for %zu blocks\n", req_blocks);
         while (rem > 0) {
             view += 1;
             // TODO: Check for end of memory
-            if (block_group_free(bd->block_groups[view]) != 8 && rem > 8) {
+            if (rem >= 8 && block_group_free(bd->block_groups[view]) != 8) {
+                printf("Not enough free!\n");
                 return -1;
             }
             if (rem <= 8 && block_group_free_head(bd->block_groups[view], rem) == rem) {
@@ -83,11 +86,13 @@ int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t 
         }
         bd->block_groups[view] |= ((unsigned char) 255 << rem);
         // Update node pointer
-        printf("Assigning block pointer from %zu over %zu\n", first_free, req_blocks);
-        struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
-        local_p->block_begin = first_free;
-        local_p->block_length = req_blocks;
-        node->bps = g_list_append(node->bps, local_p);
+        struct block_pointer* bp = g_list_last(node->bps)->data;
+        bp->block_length += req_blocks;
+        // printf("Extending block pointer from %zu to %zu\n", bp->block_begin, bp->block_length);
+        // struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
+        // local_p->block_begin = first_free;
+        // local_p->block_length = req_blocks;
+        // node->bps = g_list_append(node->bps, local_p);
         node->meta.st_blocks += req_blocks;
 
         return 0;
@@ -98,14 +103,14 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         // Free Block Range Failed...
     }
 
-    printf("Fetching block\n");
+    // printf("Fetching block\n");
     for (size_t cur = 0; cur < bd->num_free_start; cur += 1) {
         size_t first_free = bd->free_start[cur];
         size_t group_no = get_block_group(first_free);
 
-        printf("Testing group %zu at position %zu\n", group_no, first_free);
-        printf("Free in Block group: %zu\n", block_group_free(bd->block_groups[group_no]));
-        printf("Sequential blocks free: %d\n", block_group_seq(bd->block_groups[group_no], req_blocks));
+        // printf("Testing group %zu at position %zu\n", group_no, first_free);
+        // printf("Free in Block group: %zu\n", block_group_free(bd->block_groups[group_no]));
+        // printf("Sequential blocks free: %d\n", block_group_seq(bd->block_groups[group_no], req_blocks));
 
         if (
             block_group_free(bd->block_groups[group_no]) >= req_blocks &&
@@ -117,7 +122,7 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
             bd->block_groups[group_no] |= pattern;
 
             // Update node pointer
-            printf("Assigning block pointer from %zu over %zu\n", first_free, req_blocks);
+            // printf("Assigning block pointer from %zu over %zu\n", first_free, req_blocks);
             struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
             local_p->block_begin = first_free;
             local_p->block_length = req_blocks;
@@ -139,7 +144,7 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         } else if (
             block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no])) == block_group_free(bd->block_groups[group_no])
         ) {
-            printf("Try block append.\n");
+            // printf("Try block append.\n");
             if (try_block_append(bd, node, first_free, group_no, req_blocks) >= 0) {
                 return req_blocks;
             }
@@ -149,7 +154,7 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
     }
 
 
-    printf("Unsuccesfull.\n");
+    // printf("Unsuccesfull.\n");
     return -1;
 }
 
@@ -160,7 +165,7 @@ int block_distributor_alloc(struct block_distributor* bd, struct fs_node* node, 
         req_blocks += 1;
     }
 
-    printf("Allocating %zu blocks (per %zu bytes) of size %zu bytes \n", req_blocks, BLOCK_SIZE, size);
+    // printf("Allocating %zu blocks (per %zu bytes) of size %zu bytes \n", req_blocks, BLOCK_SIZE, size);
     return fetch_block_and_append(bd, node, size, req_blocks);
 }
 
