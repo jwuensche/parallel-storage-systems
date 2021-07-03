@@ -22,20 +22,12 @@
 #include <gmodule.h>
 #include "../include/block_distributor.h"
 #include "../include/fs_node.h"
+#include "../include/dummyfs.h"
+#include "../include/serializers.h"
 
 
 #define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
 #define MAX_FILE_SIZE sizeof(char) * 256 * 1024 * 1024
-
-typedef unsigned int inode;
-
-struct dummyfs {
-	void* data;
-	inode cur_inode;
-	swisstablemap_t* entry_map;
-	swisstablemap_t* inode_map;
-	atomic_size_t total_bytes;
-};
 
 void* dummyfs_allocate(struct dummyfs* fs, size_t bytes) {
 	if (fs->total_bytes + bytes > FS_SIZE) {
@@ -119,7 +111,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	new_entry->inode = fs->cur_inode;
 
 	// Init metadata
-	struct stat* meta = &new_entry->stat;
+	struct stat* meta = &new_entry->meta;
 	meta->st_ino = fs->cur_inode;
 	meta->st_uid = uid;
 	meta->st_gid = gid;
@@ -169,7 +161,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 	dir->children = NULL;
 	dir->num_children = 0;
 	dir->inode = *new_inode;
-	struct stat* meta = &dir->stat;
+	struct stat* meta = &dir->meta;
 	meta->st_ino = *new_inode;
 	meta->st_uid = uid;
 	meta->st_gid = gid;
@@ -295,7 +287,7 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 	while (atomic_flag_test_and_set(&p_entry->busy)) {}
 	struct fs_node* new_entry = dummyfs_add_file(fs, name, parent_path, fi, ctx->uid, ctx->gid);
-	new_entry->stat.st_mode = mode;
+	new_entry->meta.st_mode = mode;
 	atomic_flag_clear(&p_entry->busy);
 
 	return res;
@@ -321,7 +313,7 @@ dummyfs_getattr (const char* path, struct stat* stbuf, struct fuse_file_info* fi
 	if (node != NULL) {
 		// printf("GETATTR from %s\n", node->name);
 		// Write to target memory
-		*stbuf = node->stat;
+		*stbuf = node->meta;
 	} else {
 		res = -ENOENT;
 	}
@@ -358,10 +350,10 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 		return res;
 	}
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
-	if ((p_entry->stat.st_mode & S_IFDIR) == S_IFDIR) {
+	if ((p_entry->meta.st_mode & S_IFDIR) == S_IFDIR) {
 		while (atomic_flag_test_and_set(&p_entry->busy)) {}
 		struct fs_node* d_node = dummyfs_add_directory(fs, d_name, p_path, NULL, ctx->uid, ctx->gid);
-		d_node->stat.st_mode = mode | S_IFDIR;
+		d_node->meta.st_mode = mode | S_IFDIR;
 		atomic_flag_clear(&p_entry->busy);
 	} else {
 		res = -EINVAL;
@@ -406,14 +398,14 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 	}
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
-	if (node != NULL && node->stat.st_nlink > 0 && (node->stat.st_mode & S_IFREG) == S_IFREG) {
+	if (node != NULL && node->meta.st_nlink > 0 && (node->meta.st_mode & S_IFREG) == S_IFREG) {
 		//printf("READING from %s\n", node->name);
 		// Write to target memory
 		// printf("Accessing %zu bytes at %p with offset %ld .\n", size, node->content, offset);
-		// printf("Reported size is %ld and allocated %zu\n", node->stat.st_size, node->allocated_size);
+		// printf("Reported size is %ld and allocated %zu\n", node->meta.st_size, node->allocated_size);
 		while (atomic_flag_test_and_set(&node->busy)) {}
-		if (offset + size > (unsigned long) node->stat.st_size) {
-			memcpy(buf, node->content + offset, node->stat.st_size - offset);
+		if (offset + size > (unsigned long) node->meta.st_size) {
+			memcpy(buf, node->content + offset, node->meta.st_size - offset);
 		} else {
 			memcpy(buf, node->content + offset, size);
 		}
@@ -422,7 +414,7 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 		// Update fs tree
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
-		node->stat.st_atime = ts.tv_sec;
+		node->meta.st_atime = ts.tv_sec;
 		res = size;
 	} else if (node == NULL) {
 		res = -ENOENT;
@@ -435,7 +427,7 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 }
 
 void dummyfs_rename_subdirs(struct dummyfs* fs, struct fs_node* o_entry, const char* old, const char* new) {
-	if ((o_entry->stat.st_mode & S_IFDIR) == S_IFDIR && o_entry->children != NULL) {
+	if ((o_entry->meta.st_mode & S_IFDIR) == S_IFDIR && o_entry->children != NULL) {
 		GList* elem;
 		for (elem = o_entry->children; elem != NULL; elem = elem->next) {
 			struct fs_node* child = elem->data;
@@ -533,13 +525,13 @@ dummyfs_readdir (const char* path, void* buf, fuse_fill_dir_t filler, off_t offs
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
 	while (atomic_flag_test_and_set(&node->busy)) {}
-	if (node != NULL && (node->stat.st_mode & S_IFDIR) == S_IFDIR) {
+	if (node != NULL && (node->meta.st_mode & S_IFDIR) == S_IFDIR) {
 		filler(buf, ".", NULL, 0, 0);
 		filler(buf, "..", NULL, 0, 0);
 		GList* cur = node->children;
 		while (cur!=NULL) {
 			struct fs_node* child = (struct fs_node*) cur->data;
-			if (child->stat.st_nlink > 0) {
+			if (child->meta.st_nlink > 0) {
 				filler(buf,child->name, NULL, 0, 0);
 			}
 			cur = cur->next;
@@ -585,7 +577,7 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 	}
 	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
 
-	if (node != NULL && (node->stat.st_mode & S_IFREG) == S_IFREG) {
+	if (node != NULL && (node->meta.st_mode & S_IFREG) == S_IFREG) {
 		while (atomic_flag_test_and_set(&node->busy)) {}
 		if ((long unsigned int) size > MAX_FILE_SIZE) {
 			res = -ENOSPC;
@@ -603,9 +595,9 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 		}
 		node->content = n_content;
 		node->allocated_size = allocate_size;
-		node->stat.st_size = size;
+		node->meta.st_size = size;
 		atomic_flag_clear(&node->busy);
-		//printf("Setting size to %ld", node->stat.st_size);
+		//printf("Setting size to %ld", node->meta.st_size);
 	} else if (node != NULL) {
 		res = -EINVAL;
 	} else {
@@ -636,7 +628,7 @@ dummyfs_unlink (const char* path)
 
 	if (node != NULL) {
 		while (atomic_flag_test_and_set(&node->busy)) {}
-		node->stat.st_nlink = 0;
+		node->meta.st_nlink = 0;
 		atomic_flag_clear(&node->busy);
 	}
 
@@ -664,11 +656,11 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 	inode* inode = dummyfs_inode_search(fs, path);
 	// TODO: check inode
 	struct fs_node* node = dummyfs_entry_search(fs, inode);
-	if (node != NULL && node->stat.st_nlink > 0) {
+	if (node != NULL && node->meta.st_nlink > 0) {
 		// Update fs tree
 		while (atomic_flag_test_and_set(&node->busy)) {}
-		if ((off_t)(offset + size) > node->stat.st_size) {
-			size_t n_size = node->stat.st_size + size - (node->stat.st_size - offset);
+		if ((off_t)(offset + size) > node->meta.st_size) {
+			size_t n_size = node->meta.st_size + size - (node->meta.st_size - offset);
 			//printf("Increasing size to %ld\n", n_size);
 			if (n_size > MAX_FILE_SIZE) {
 				res = -ENOSPC;
@@ -683,13 +675,13 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 				node->content = n_content;
 			}
 			node->allocated_size = n_size;
-			node->stat.st_size = n_size;
+			node->meta.st_size = n_size;
 		}
 		// Write to target memory
 		memcpy(node->content + offset, buf, size);
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
-		node->stat.st_mtime = ts.tv_sec;
+		node->meta.st_mtime = ts.tv_sec;
 		res = size;
 		atomic_flag_clear(&node->busy);
 	} else if (node == NULL) {

@@ -17,10 +17,15 @@ struct fs_node {
 	size_t num_children;
 	GList* children;
 	char* content;
+	size_t allocated_size;
 	inode inode;
 	struct stat meta;
-	size_t num_blocks;
-	struct block_pointer* bps;
+	GList* bps;
+};
+
+struct inode_info {
+	inode inode;
+	size_t block;
 };
 
 #endif /* FS_NODE_H */

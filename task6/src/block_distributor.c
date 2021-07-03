@@ -1,5 +1,12 @@
 #include "../include/block_distributor.h"
 #include <stddef.h>
+#include <stdlib.h>
+#include <gmodule.h>
+
+void block_distributor_init(struct block_distributor* bd) {
+    bd->num_free_start = 0;
+    memset(&bd->block_groups, (char) 0, 412878);
+}
 
 size_t block_group_free(char block) {
     return 8 - __builtin_popcount(block);
@@ -52,7 +59,6 @@ int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t 
         size_t first = block_group_free_tail(bd->block_groups[group_no], block_group_free(bd->block_groups[group_no]));
         size_t rem = req_blocks - first;
         size_t view = group_no;
-        char suc = 0;
         while (rem > 0) {
             view += 1;
             // TODO: Check for end of memory
@@ -76,24 +82,22 @@ int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t 
         }
         bd->block_groups[view] |= ((char) 255 << rem);
         // Update node pointer
-        struct block_pointer local_p;
-        local_p.block_begin = first_free;
-        local_p.block_length = req_blocks;
-        node->bps[node->num_blocks] = local_p;
-        node->num_blocks += 1;
+        struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
+        local_p->block_begin = first_free;
+        local_p->block_length = req_blocks;
+        node->bps = g_list_append(node->bps, local_p);
 
         return 0;
 }
 
 int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, size_t size, size_t req_blocks) {
-    if (bd->num_free_start > 0 || reinit_free_start(bd) < 0) {
+    if (bd->num_free_start <= 0 || reinit_free_start(bd) < 0) {
         // Free Block Range Failed...
     }
 
     for (size_t cur = 0; cur < bd->num_free_start; cur += 1) {
         size_t first_free = bd->free_start[cur];
         size_t group_no = get_block_group(first_free);
-        size_t rem_blocks = req_blocks;
 
         if (
             block_group_free(bd->block_groups[group_no]) >= req_blocks &&
@@ -105,11 +109,10 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
             bd->block_groups[group_no] |= pattern;
 
             // Update node pointer
-            struct block_pointer local_p;
-            local_p.block_begin = first_free;
-            local_p.block_length = req_blocks;
-            node->bps[node->num_blocks] = local_p;
-            node->num_blocks += 1;
+            struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
+            local_p->block_begin = first_free;
+            local_p->block_length = req_blocks;
+            node->bps = g_list_append(node->bps, local_p);
 
             // Update next known free
             if (block_group_first_free(bd->block_groups[group_no]) >= 0) {
@@ -157,7 +160,8 @@ int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node
     req_blocks -= present_blocks;
 
     // Last known space
-    size_t continuation_block = node->bps[node->num_blocks-1].block_begin + node->bps[node->num_blocks-1].block_length;
+    struct block_pointer* last = (struct block_pointer*) g_list_last(node->bps)->data;
+    size_t continuation_block = last->block_begin + last->block_length;
     size_t group_no = continuation_block % 8;
 
     if (try_block_append(bd, node, continuation_block, group_no, req_blocks) >= 0) {
@@ -168,9 +172,6 @@ int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node
 }
 
 int block_distributor_free(struct block_distributor* bd, struct fs_node* node) {
-    for (size_t cur = 0; cur < node->num_blocks; cur += 1) {
-        struct block_pointer bp = node->bps[cur];
-    }
-    node->num_blocks = 0;
+    // TODO: Free
     return -1;
 }

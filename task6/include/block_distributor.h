@@ -18,10 +18,7 @@ struct block_distributor {
     char block_groups[412878];
 };
 
-void block_distributor_init(struct block_distributor* bd) {
-    bd->num_free_start = 0;
-    memset(&bd->block_groups, (char) 0, 412878);
-}
+void block_distributor_init(struct block_distributor* bd);
 
 int block_distributor_alloc(struct block_distributor* bd, struct fs_node* node, size_t size);
 
