@@ -25,6 +25,7 @@
 #include "../include/fs_node.h"
 #include "../include/dummyfs.h"
 #include "../include/serializers.h"
+#include "../include/derserializers.h"
 #include "../include/block_writer.h"
 
 
@@ -67,6 +68,7 @@ inode* dummyfs_inode_add(struct dummyfs* fs, const char* name) {
 	}
 	struct inode_info* n_inode = dummyfs_allocate(fs, (sizeof(struct inode_info)));
 	n_inode->inode = fs->cur_inode++;
+	fs->inode_count++;
 	n_inode->block = metadata_block;
 
 	swisstable_map_insert(fs->inode_map, key, strlen(key), n_inode);
@@ -211,6 +213,7 @@ void dummyfs_init (struct dummyfs* fs, int fd) {
 	atomic_flag flag = ATOMIC_FLAG_INIT;
 	fs->busy = flag;
 	fs->cur_inode = 0;
+	fs->inode_count = 0;
 	fs->total_bytes = 0;
 	fs->entry_map = swisstable_map_create();
 	swisstable_map_reserve(fs->entry_map, 1024);
@@ -225,8 +228,6 @@ void dummyfs_init (struct dummyfs* fs, int fd) {
 	block_distributor_init(fs->block_distributor);
 	fs->meta_distributor = malloc(sizeof(struct meta_block_distributor));
 	meta_block_distributor_init(fs->meta_distributor);
-
-
 
 	// inode* test = dummyfs_inode_search(fs, "/");
 	// printf("The respective inode for %s is %u while new inode was %u\n", "/", *test, *new_inode);
@@ -678,6 +679,7 @@ dummyfs_unlink (const char* path)
 		p_entry->children = g_list_remove(p_entry->children, n_inode);
 		swisstable_map_erase(fs->entry_map, n_inode, sizeof(inode));
 		swisstable_map_erase(fs->inode_map, path, strlen(path));
+		fs->inode_count--;
 		block_distributor_free(fs->block_distributor, c_entry);
 		atomic_flag_clear(&c_entry->busy);
 		atomic_flag_clear(&p_entry->busy);

@@ -10,6 +10,7 @@ struct dummyfs {
 	atomic_flag busy;
 	void* data;
 	inode cur_inode;
+	size_t inode_count;
 	swisstablemap_t* entry_map;
 	swisstablemap_t* inode_map;
 	struct block_distributor* block_distributor;

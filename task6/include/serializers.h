@@ -33,8 +33,7 @@ int serialize_entry(struct dummyfs* fs, struct fs_node* node, size_t block) {
     memcpy(dat + offset_from_block(block, ENTRIES, BLOCK_SIZE) + offset, &len_name, write_size);
     offset += write_size;
 
-    // WRITE NAME
-    write_size = len_name;
+    // WRITE NAME write_size = len_name;
     memcpy(dat + offset_from_block(block, ENTRIES, BLOCK_SIZE) + offset, node->name, write_size);
     offset += write_size;
 
@@ -113,8 +112,13 @@ void cb_serialize_inode(void* key, void* value, void* data) {
 
 int serialize_inodes(struct dummyfs* fs) {
     struct inode_writer writer;
-    writer.offset = 0;
+    writer.offset = INODES;
     writer.data = fs->data;
+
+    size_t write_size = sizeof(size_t);
+    memcpy((char*)writer.data + writer.offset, &fs->inode_count, write_size);
+    writer.offset += write_size;
+
     swisstable_map_foreach_sideeffect(fs->inode_map, cb_serialize_inode, (void*) &writer);
     return 0;
 }

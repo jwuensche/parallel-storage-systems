@@ -139,8 +139,9 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         reinit_free_start(bd);
     }
     size_t foo = rand();
+
     for (size_t idx = 0; idx < bd->num_free_start; idx += 1) {
-        size_t cur = (rand() + idx) % bd->num_free_start;
+        size_t cur = (foo + idx) % bd->num_free_start;
         size_t first_free = bd->free_start[cur];
         size_t group_no = get_block_group(first_free);
 
@@ -232,7 +233,6 @@ int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node
     // Last known space
     struct block_pointer* last = (struct block_pointer*) g_list_last(node->bps)->data;
     size_t continuation_block = last->block_begin + last->block_length;
-    size_t group_no = get_block_group(continuation_block);
 
     // printf("TRY APPEND\n");
     if (try_block_append(bd, node, continuation_block, req_blocks) >= 0) {

@@ -7,7 +7,7 @@
 #include "fs_node.h"
 
 #define BLOCK_SIZE (size_t) (4 * 1024)
-#define FS_SIZE (size_t) (16 * 1024 * 1024 * 1024)
+#define FS_SIZE (size_t) ((size_t)16 * 1024 * 1024 * 1024)
 
 #define HEADER (size_t) (512)
 #define INODES (size_t) (0 + HEADER)
