@@ -4,18 +4,8 @@
 #include <stdio.h>
 #include <gmodule.h>
 
-void block_distributor_init(struct block_distributor* bd) {
-    bd->num_free_start = 1;
-    bd->free_start[0] = 0;
-    memset(&bd->block_groups, (char) 0, 412878);
-}
-
 size_t block_group_free(unsigned char block) {
     return 8 - __builtin_popcount(block);
-}
-
-size_t get_block_group(size_t block) {
-    return block / (size_t) 8;
 }
 
 size_t block_group_first_free(unsigned char block) {
@@ -31,12 +21,24 @@ size_t block_group_first_free(unsigned char block) {
 void reinit_free_start(struct block_distributor* bd) {
     // TODO: Refresh the complete list of free start blocks
     bd->num_free_start = 0;
-    for (size_t cur = 0; cur < 412878; cur += 1) {
+    printf("REINIT\n");
+    for (size_t idx = 0; idx < 32; idx += 1) {
+        size_t cur = rand() % 412878;
         if (block_group_free(bd->block_groups[cur])) {
             bd->free_start[bd->num_free_start++] = cur * 8 + block_group_first_free(bd->block_groups[cur]);
-            return;
         }
     }
+    printf("Found %zu values\n", bd->num_free_start);
+    return;
+}
+
+void block_distributor_init(struct block_distributor* bd) {
+    reinit_free_start(bd);
+    memset(&bd->block_groups, (char) 0, 412878);
+}
+
+size_t get_block_group(size_t block) {
+    return block / (size_t) 8;
 }
 
 // Return value represents the length free blocks in the range specified
@@ -111,11 +113,19 @@ int try_block_append(struct block_distributor* bd, struct fs_node* node, size_t 
     node->meta.st_blocks += req_blocks;
 
     size_t next = bp->block_begin + bp->block_length;
-    if ((bd->block_groups[get_block_group(next)] >> (7 - (next % 8)) & 1) != 1) {
-        bd->free_start[0] = next;
-    } else {
-        bd->num_free_start = 0;
+    for (size_t cur = 0; cur < bd->num_free_start; cur += 1) {
+        if (bd->free_start[cur] > bp->block_begin && bd->free_start[cur] < bp->block_begin + bp->block_length) {
+            if ((bd->block_groups[get_block_group(next)] >> (7 - (next % 8)) & 1) != 1) {
+                bd->free_start[0] = next;
+            } else {
+                for (size_t nxt = cur+1; nxt < bd->num_free_start; nxt += 1) {
+                    bd->free_start[nxt-1] = bd->free_start[nxt];
+                }
+                bd->num_free_start -= 1;
+            }
+        }
     }
+
     // bd->num_free_start = 0;
 
     return req_blocks;
@@ -129,11 +139,11 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         reinit_free_start(bd);
     }
 
-    for (size_t cur = 0; cur < bd->num_free_start; cur += 1) {
+    for (size_t cur = rand() % bd->num_free_start; cur < bd->num_free_start; cur += 1) {
         size_t first_free = bd->free_start[cur];
         size_t group_no = get_block_group(first_free);
 
-        // printf("Testing group %zu at position %zu\n", group_no, first_free);
+        printf("Testing group %zu at position %zu\n", group_no, first_free);
         // printf("Free in Block group: %zu\n", block_group_free(bd->block_groups[group_no]));
         // printf("Sequential blocks free: %d\n", block_group_seq(bd->block_groups[group_no], req_blocks));
 
@@ -147,7 +157,7 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
             bd->block_groups[group_no] |= pattern;
 
             // Update node pointer
-            printf("Assigning block pointer from %zu over %zu\n", first_free, req_blocks);
+            // printf("Assigning block pointer from %zu over %zu\n", first_free, req_blocks);
             struct block_pointer* local_p = malloc(sizeof(struct block_pointer));
             local_p->block_begin = first_free;
             local_p->block_length = req_blocks;
