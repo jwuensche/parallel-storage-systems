@@ -314,16 +314,22 @@ dummyfs_create (const char* path, mode_t mode, struct fuse_file_info* fi)
 	char name[strlen(path)];
 	get_parent_path(path, parent_path, name);
 	//printf("PARENT PATH FOR %s IS %s\n", path, parent_path);
-	inode* p_inode = &dummyfs_inode_search(fs, parent_path)->inode;
-	if (p_inode == NULL) {
+	struct inode_info* p_inode_info = dummyfs_inode_search(fs, parent_path);
+	if (p_inode_info == NULL) {
 		res = -ENOENT;
 		return res;
 	}
+	inode* p_inode = &p_inode_info->inode;
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 	while (atomic_flag_test_and_set(&p_entry->busy)) {}
 	struct fs_node* new_entry = dummyfs_add_file(fs, name, parent_path, fi, ctx->uid, ctx->gid);
 	new_entry->meta.st_mode = mode;
 	atomic_flag_clear(&p_entry->busy);
+	serialize_entry(fs, p_entry, p_inode_info->block);
+	struct inode_info* new_inode_info = dummyfs_inode_search(fs, path);
+	serialize_entry(fs, new_entry, new_inode_info->block);
+	serialize_inodes(fs);
+	serialize_meta_bitmap(fs);
 
 	return res;
 }
@@ -379,18 +385,24 @@ dummyfs_mkdir(const char* path, mode_t mode) {
 	char p_path[strlen(path)];
 	char d_name[strlen(path)];
 	get_parent_path(path, p_path, d_name);
-	inode* p_inode = &dummyfs_inode_search(fs, p_path)->inode;
+	struct inode_info* p_inode_info = dummyfs_inode_search(fs, p_path);
 	// printf("Looking up parent \"%s\" with %lu\n", p_path, strlen(p_path));
-	if (p_inode == NULL) {
+	if (p_inode_info == NULL) {
 		res = -ENOTDIR;
 		return res;
 	}
+	inode* p_inode = &p_inode_info->inode;
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 	if ((p_entry->meta.st_mode & S_IFDIR) == S_IFDIR) {
 		while (atomic_flag_test_and_set(&p_entry->busy)) {}
 		struct fs_node* d_node = dummyfs_add_directory(fs, d_name, p_path, NULL, ctx->uid, ctx->gid);
 		d_node->meta.st_mode = mode | S_IFDIR;
 		atomic_flag_clear(&p_entry->busy);
+		struct inode_info* new_inode_info = dummyfs_inode_search(fs, path);
+		serialize_entry(fs, d_node, new_inode_info->block);
+		serialize_entry(fs, p_entry, p_inode_info->block);
+		serialize_inodes(fs);
+		serialize_meta_bitmap(fs);
 	} else {
 		res = -EINVAL;
 	}
@@ -456,6 +468,7 @@ dummyfs_read (const char* path, char* buf, size_t size, off_t offset, struct fus
 		struct timespec ts;
 		clock_gettime(CLOCK_REALTIME, &ts);
 		node->meta.st_atime = ts.tv_sec;
+		serialize_entry(fs, node, n_inode_info->block);
 		res = size;
 	} else if (node == NULL) {
 		res = -ENOENT;
@@ -498,16 +511,18 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
 
-	struct inode_info* o_inode = dummyfs_inode_search(fs, old);
-	inode* n_inode = &dummyfs_inode_search(fs, new)->inode;
+	struct inode_info* o_inode_info = dummyfs_inode_search(fs, old);
+	struct inode_info* n_inode_info = dummyfs_inode_search(fs, new);
 
 	if ((flags & RENAME_EXCHANGE ) == RENAME_EXCHANGE) {
-		if (o_inode != NULL && n_inode != NULL) {
-			struct fs_node* o_entry = dummyfs_entry_search(fs, &o_inode->inode);
-			struct fs_node* n_entry = dummyfs_entry_search(fs, n_inode);
+		if (o_inode_info != NULL && n_inode_info != NULL) {
+			struct fs_node* o_entry = dummyfs_entry_search(fs, &o_inode_info->inode);
+			struct fs_node* n_entry = dummyfs_entry_search(fs, &n_inode_info->inode);
 			struct fs_node swap = *o_entry;
 			*o_entry = *n_entry;
 			*n_entry = swap;
+			serialize_entry(fs, o_entry, o_inode_info->block);
+			serialize_entry(fs, n_entry, n_inode_info->block);
 			return res;
 		}
 		res = -EINVAL;
@@ -515,11 +530,11 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 	}
 
 	if ((flags & RENAME_NOREPLACE) == RENAME_NOREPLACE) {
-		if (n_inode != NULL) {
+		if (n_inode_info != NULL) {
 			res = -EINVAL;
 			return res;
 		}
-		struct fs_node* o_entry = dummyfs_entry_search(fs, &o_inode->inode);
+		struct fs_node* o_entry = dummyfs_entry_search(fs, &o_inode_info->inode);
 		char op_path[strlen(old)];
 		char od_name[strlen(old)];
 		get_parent_path(old, op_path, od_name);
@@ -528,21 +543,35 @@ dummyfs_rename (const char* old, const char* new, unsigned int flags) {
 		char nd_name[strlen(new)];
 		get_parent_path(new, np_path, nd_name);
 
-		inode* op_inode = &dummyfs_inode_search(fs, op_path)->inode;
+		struct inode_info* op_inode_info = dummyfs_inode_search(fs, op_path);
+		if (op_inode_info == NULL) {
+			res = -ENOENT;
+			return res;
+		}
+		inode* op_inode = &op_inode_info->inode;
 		struct fs_node* op_entry = dummyfs_entry_search(fs, op_inode);
 
-		inode* np_inode = &dummyfs_inode_search(fs, np_path)->inode;
+		struct inode_info* np_inode_info = dummyfs_inode_search(fs, np_path);
+		if (np_inode_info == NULL) {
+			res = -ENOENT;
+			return res;
+		}
+		inode* np_inode = &np_inode_info->inode;
 		struct fs_node* np_entry = dummyfs_entry_search(fs, np_inode);
 
-		op_entry->children = g_list_remove(op_entry->children, &o_inode->inode);
-		np_entry->children = g_list_append(np_entry->children, &o_inode->inode);
+		op_entry->children = g_list_remove(op_entry->children, &o_inode_info->inode);
+		np_entry->children = g_list_append(np_entry->children, &o_inode_info->inode);
 		char* name = malloc(strlen(nd_name) + 1);
 		strcpy(name, nd_name);
 		free(o_entry->name);
 		o_entry->name = name;
-		dummyfs_inode_add_explicit(fs, new, o_inode);
+		dummyfs_inode_add_explicit(fs, new, o_inode_info);
 		swisstable_map_erase(fs->inode_map, old, strlen(old));
 		dummyfs_rename_subdirs(fs, o_entry, old, new);
+		serialize_inodes(fs);
+		serialize_entry(fs, op_entry, op_inode_info->block);
+		serialize_entry(fs, np_entry, np_inode_info->block);
+		serialize_entry(fs, o_entry, o_inode_info->block);
 	}
 
 	return 0;
@@ -640,6 +669,7 @@ dummyfs_truncate (const char* path, off_t size, struct fuse_file_info* fi)
 		block_distributor_realloc(fs->block_distributor, node, allocate_size);
 		node->meta.st_size = size;
 		atomic_flag_clear(&node->busy);
+		serialize_entry(fs, node, n_inode_info->block);
 		//printf("Setting size to %ld", node->meta.st_size);
 	} else if (node != NULL) {
 		res = -EINVAL;
@@ -690,6 +720,9 @@ dummyfs_unlink (const char* path)
 		atomic_flag_clear(&c_entry->busy);
 		atomic_flag_clear(&p_entry->busy);
 	}
+
+	serialize_inodes(fs);
+	serialize_entry(fs, p_entry, p_inode_info->block);
 
 	return res;
 }
@@ -753,6 +786,8 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 		node->meta.st_mtime = ts.tv_sec;
 		res = size;
 		atomic_flag_clear(&node->busy);
+		serialize_entry(fs, node, n_inode_info->block);
+		serialize_content_bitmap(fs);
 		//printf("Released file lock.\n");
 	} else if (node == NULL) {
 		res = -ENOENT;

@@ -6,6 +6,7 @@
 #include "dummyfs.h"
 #include <stddef.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <unistd.h>
 #include <gmodule.h>
 
@@ -90,6 +91,7 @@ int serialize_entry(struct dummyfs* fs, struct fs_node* node, size_t block) {
         offset += write_size;
     }
 
+    msync(dat + offset_from_block(block, ENTRIES, BLOCK_SIZE), offset, MS_ASYNC);
     return 0;
 }
 
@@ -120,6 +122,7 @@ int serialize_inodes(struct dummyfs* fs) {
     writer.offset += write_size;
 
     swisstable_map_foreach_sideeffect(fs->inode_map, cb_serialize_inode, (void*) &writer);
+    msync((char*)writer.data + INODES, writer.offset - INODES, MS_ASYNC);
     return 0;
 }
 
@@ -133,6 +136,7 @@ int serialize_header(struct dummyfs* fs) {
     memcpy(dat + offset, &fs->cur_inode, sizeof(inode));
     offset += sizeof(inode);
 
+    msync(dat, offset, MS_ASYNC);
     // OPEN FOR MORE
     return 0;
 }
@@ -140,12 +144,14 @@ int serialize_header(struct dummyfs* fs) {
 int serialize_content_bitmap(struct dummyfs* fs) {
     char* dat = (char*) fs->data;
     memcpy(dat + DIST_CONTENT, fs->block_distributor, sizeof(struct block_distributor));
+    msync(dat + DIST_CONTENT, sizeof(struct block_distributor), MS_ASYNC);
     return 0;
 }
 
 int serialize_meta_bitmap(struct dummyfs* fs) {
     char* dat = (char*) fs->data;
     memcpy(dat + DIST_HEADER, fs->meta_distributor, sizeof(struct meta_block_distributor));
+    msync(dat + DIST_HEADER, sizeof(struct meta_block_distributor), MS_ASYNC);
     return 0;
 }
 
