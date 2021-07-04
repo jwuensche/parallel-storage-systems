@@ -239,7 +239,7 @@ void dummyfs_init (struct dummyfs* fs, int fd) {
 	serialize_content_bitmap(fs);
 	serialize_meta_bitmap(fs);
 	// INITIAL WRITING OF ALL BASIC INFOS
-	msync(fs->data, FS_SIZE, MS_SYNC);
+	msync(fs->data, CONTENT, MS_SYNC);
 }
 
 /*
