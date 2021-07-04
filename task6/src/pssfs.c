@@ -198,7 +198,7 @@ struct fs_node* dummyfs_add_directory(struct dummyfs* fs, const char* name, cons
 
 void dummyfs_init (struct dummyfs* fs, int fd) {
 
-	fs->data = mmap(NULL, FS_SIZE, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, 0);
+	fs->data = mmap(NULL, FS_SIZE, PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
 	if (fs->data == NULL) {
 		printf("Could not open device or file\n");
 		exit(1);
@@ -234,6 +234,12 @@ void dummyfs_init (struct dummyfs* fs, int fd) {
 	// printf("Fetched again with %u this results in pointer %p\n", *test, dummyfs_entry_search(fs, test));
 	//
 	dummyfs_add_directory(fs, "/", NULL, NULL, 1000, 1000);
+	serialize_header(fs);
+	serialize_inodes(fs);
+	serialize_content_bitmap(fs);
+	serialize_meta_bitmap(fs);
+	// INITIAL WRITING OF ALL BASIC INFOS
+	msync(fs->data, FS_SIZE, MS_SYNC);
 }
 
 /*
