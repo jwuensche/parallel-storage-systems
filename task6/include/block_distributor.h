@@ -7,14 +7,14 @@
 #include "fs_node.h"
 
 #define BLOCK_SIZE (size_t) (4 * 1024)
-#define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
+#define FS_SIZE (size_t) (16 * 1024 * 1024 * 1024)
 
-#define HEADER sizeof(char) * 512
-#define INODES sizeof(char) * 0 + HEADER
-#define ENTRIES sizeof(char) * 64 * 1024 * 1024 + HEADER
-#define DIST_HEADER sizeof(char) * 128 * 1024 * 1024 + HEADER
-#define DIST_CONTENT sizeof(char) *129 * 1024 * 1024 + HEADER
-#define CONTENT sizeof(char) *130 * 1024 * 1024 + HEADER
+#define HEADER (size_t) (512)
+#define INODES (size_t) (0 + HEADER)
+#define ENTRIES (size_t) (64 * 1024 * 1024 + HEADER)
+#define DIST_HEADER (size_t) (128 * 1024 * 1024 + HEADER)
+#define DIST_CONTENT (size_t) (129 * 1024 * 1024 + HEADER)
+#define CONTENT (size_t) (130 * 1024 * 1024 + HEADER)
 
 struct block_pointer {
     size_t block_begin;

@@ -133,4 +133,17 @@ int serialize_header(struct dummyfs* fs) {
     return 0;
 }
 
+int serialize_content_bitmap(struct dummyfs* fs) {
+    char* dat = (char*) fs->data;
+    memcpy(dat + DIST_CONTENT, fs->block_distributor, sizeof(struct block_distributor));
+    return 0;
+}
+
+int serialize_meta_bitmap(struct dummyfs* fs) {
+    char* dat = (char*) fs->data;
+    memcpy(dat + DIST_HEADER, fs->meta_distributor, sizeof(struct meta_block_distributor));
+    return 0;
+}
+
+
 #endif /* SERIALIZERS_H */

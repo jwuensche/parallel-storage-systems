@@ -28,7 +28,6 @@
 #include "../include/block_writer.h"
 
 
-#define FS_SIZE sizeof(char) * 16 * 1024 * 1024 * 1024
 #define MAX_FILE_SIZE sizeof(char) * 256 * 1024 * 1024
 
 void* dummyfs_allocate(struct dummyfs* fs, size_t bytes) {
@@ -672,13 +671,14 @@ dummyfs_unlink (const char* path)
 	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 
 
-	if (c_entry != NULL && p_entry != NULL) {
+	if (c_entry != NULL && c_entry->meta.st_nlink <= 1 && p_entry != NULL) {
 		while (atomic_flag_test_and_set(&c_entry->busy)) {}
 		while (atomic_flag_test_and_set(&p_entry->busy)) {}
 		c_entry->meta.st_nlink = 0;
 		p_entry->children = g_list_remove(p_entry->children, n_inode);
 		swisstable_map_erase(fs->entry_map, n_inode, sizeof(inode));
 		swisstable_map_erase(fs->inode_map, path, strlen(path));
+		block_distributor_free(fs->block_distributor, c_entry);
 		atomic_flag_clear(&c_entry->busy);
 		atomic_flag_clear(&p_entry->busy);
 	}

@@ -138,8 +138,9 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
         // printf("REINIT\n");
         reinit_free_start(bd);
     }
-
-    for (size_t cur = rand() % bd->num_free_start; cur < bd->num_free_start; cur += 1) {
+    size_t foo = rand();
+    for (size_t idx = 0; idx < bd->num_free_start; idx += 1) {
+        size_t cur = (rand() + idx) % bd->num_free_start;
         size_t first_free = bd->free_start[cur];
         size_t group_no = get_block_group(first_free);
 
@@ -191,6 +192,7 @@ int fetch_block_and_append(struct block_distributor* bd, struct fs_node* node, s
 
 
     printf("Unsuccesfull Allocation.\n");
+    reinit_free_start(bd);
     return -1;
 }
 
@@ -240,10 +242,32 @@ int block_distributor_realloc(struct block_distributor* bd, struct fs_node* node
     return fetch_block_and_append(bd, node, size, req_blocks);
 }
 
-int block_distributor_free(struct block_distributor* bd, struct fs_node* node) {
-    // TODO: Free
+size_t min(size_t a, size_t b) {
+    if (a < b) {
+        return a;
+    }
+    return b;
+}
 
-    return -1;
+int block_distributor_free(struct block_distributor* bd, struct fs_node* node) {
+    printf("Freeing storage.\n");
+    GList* cur;
+    for (cur = node->bps; cur != NULL; cur = cur->next) {
+        struct block_pointer* bp = cur->data;
+        size_t group = get_block_group(bp->block_begin);
+        size_t start_length = min(8 - (bp->block_begin % 8), bp->block_length);
+        bd->block_groups[group] ^= (unsigned char) 255 << (8 - start_length) >> bp->block_begin % 8;
+        if (start_length >= bp->block_length) {
+            return 0;
+        }
+        size_t rem = bp->block_begin - start_length;
+        while (rem >= 8) {
+            bd->block_groups[++group] = 0;
+            rem -= 8;
+        }
+        bd->block_groups[++group] ^= (unsigned char) 255 << (8 - rem);
+    }
+    return 0;
 }
 
 void meta_block_distributor_init(struct meta_block_distributor *bd) {
