@@ -7,6 +7,7 @@
 typedef unsigned int inode;
 
 struct dummyfs {
+	atomic_flag busy;
 	void* data;
 	inode cur_inode;
 	swisstablemap_t* entry_map;

@@ -114,6 +114,7 @@ struct fs_node* dummyfs_add_file(struct dummyfs* fs, const char* name, const cha
 	new_entry->name = strcpy(dummyfs_allocate(fs, (strlen(name) + 1)), name);
 	new_entry->num_children = 0;
 	new_entry->children = NULL;
+	new_entry->bps = NULL;
 	new_entry->inode = fs->cur_inode;
 
 	// Init metadata
@@ -208,6 +209,8 @@ void dummyfs_init (struct dummyfs* fs, int fd) {
 		exit(14);
 	}
 
+	atomic_flag flag = ATOMIC_FLAG_INIT;
+	fs->busy = flag;
 	fs->cur_inode = 0;
 	fs->total_bytes = 0;
 	fs->entry_map = swisstable_map_create();
@@ -659,12 +662,25 @@ dummyfs_unlink (const char* path)
 		return res;
 	}
 	inode* n_inode = &n_inode_info->inode;
-	struct fs_node* node = dummyfs_entry_search(fs, n_inode);
+	struct inode_info* p_inode_info = dummyfs_inode_search(fs, parent_path);
+	if (p_inode_info == NULL) {
+		res = -ENOENT;
+		return res;
+	}
+	inode* p_inode = &p_inode_info->inode;
+	struct fs_node* c_entry = dummyfs_entry_search(fs, n_inode);
+	struct fs_node* p_entry = dummyfs_entry_search(fs, p_inode);
 
-	if (node != NULL) {
-		while (atomic_flag_test_and_set(&node->busy)) {}
-		node->meta.st_nlink = 0;
-		atomic_flag_clear(&node->busy);
+
+	if (c_entry != NULL && p_entry != NULL) {
+		while (atomic_flag_test_and_set(&c_entry->busy)) {}
+		while (atomic_flag_test_and_set(&p_entry->busy)) {}
+		c_entry->meta.st_nlink = 0;
+		p_entry->children = g_list_remove(p_entry->children, n_inode);
+		swisstable_map_erase(fs->entry_map, n_inode, sizeof(inode));
+		swisstable_map_erase(fs->inode_map, path, strlen(path));
+		atomic_flag_clear(&c_entry->busy);
+		atomic_flag_clear(&p_entry->busy);
 	}
 
 	return res;
@@ -683,7 +699,7 @@ static int
 dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, struct fuse_file_info* fi)
 {
 	(void) fi;
-	//printf("Entering write for path %s\n", path);
+	// printf("Entering write for path %s\n", path);
 	struct fuse_context* ctx = fuse_get_context();
 	struct dummyfs* fs = (struct dummyfs*) ctx->private_data;
 	int res = 0;
@@ -696,8 +712,10 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 	inode* inode = &n_inode_info->inode;
 	struct fs_node* node = dummyfs_entry_search(fs, inode);
 	if (node != NULL && node->meta.st_nlink > 0) {
+		//printf("Begin writing.\n");
 		// Update fs tree
 		while (atomic_flag_test_and_set(&node->busy)) {}
+		// printf("Attained file lock.\n");
 		if ((off_t)(offset + size) > node->meta.st_size) {
 			size_t n_size = node->meta.st_size + size - (node->meta.st_size - offset);
 			//printf("Increasing size to %ld\n", n_size);
@@ -706,7 +724,11 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 				return res;
 			}
 			if (n_size > node->meta.st_blocks * BLOCK_SIZE) {
+				while(atomic_flag_test_and_set(&fs->busy)) {}
+				// printf("Attained FS lock.\n");
 				int block_change = block_distributor_realloc(fs->block_distributor, node, n_size);
+				atomic_flag_clear(&fs->busy);
+				// printf("Released FS lock.\n");
 				if (block_change == 0) {
 					res = -ENOSPC;
 					return res;
@@ -723,6 +745,7 @@ dummyfs_write (const char* path, const char* buf, size_t size, off_t offset, str
 		node->meta.st_mtime = ts.tv_sec;
 		res = size;
 		atomic_flag_clear(&node->busy);
+		//printf("Released file lock.\n");
 	} else if (node == NULL) {
 		res = -ENOENT;
 	} else {
