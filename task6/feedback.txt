@@ -3,7 +3,35 @@ Please put an X in the appropriate column below.
 
 Time required:
 Difficult:       [ ] too easy  [X] spot-on        [ ] too hard
-Instructive:     [ ] a little  [X] okay           [ ] a lot
+Instructive:     [ ] a little  [ ] okay           [X] a lot
 Understandable:  [ ] unclear   [ ] a bit unclear  [X] clear
 
-Comments
+Comments:
+
+Overall I found the tasks to be quite nice for some handywork on a smaller C
+project, it's also beneficial in learning how to design good structures in the
+C language. This might go more in the software engineering direction, it could
+be a good idea to note just a few principles for good C software design to
+students early on in the exercise, aka after the first FUSE task or similar.
+
+---
+
+Feedback to the handed in solution:
+
+A few things are missing from our implementation, mainly the reinitialization
+of the FS once it has been terminated. The deserialization functionality is
+implemented in the deserializers.h header, but due to some bugs in our
+implementation we did not manage to finish in time, as we first focused on
+fixing those.
+
+The serialization on the other should be working as intended.
+
+Many small errors happened in our bitmap, which had to be fixed later on as we
+tested the base serialization functionality. This also lead to some
+modifications for performance reasons, further delaying the final goal.
+Maybe a less error prone data format or picking an already implemeted data
+structure which would serve our needs would have been better in this case.
+
+The performance benchmarks can be performed and completed, but numbers may not
+be representing the final results as more page writes etc might need to occur
+to ensure a valid reinitialization.
